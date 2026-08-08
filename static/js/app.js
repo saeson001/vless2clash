@@ -83,9 +83,9 @@ function showResult(data) {
     const urlInput = document.getElementById('download-url-input');
     const dlAnchor = document.getElementById('download-anchor');
 
-    if (data.download_url && data.filename) {
+    if (data.download_url && data.token) {
         dlSection.style.display = 'block';
-        fileBadge.textContent = data.filename;
+        fileBadge.textContent = data.token;
 
         // Build full URL for display
         const fullUrl = window.location.origin + data.download_url;
@@ -93,7 +93,7 @@ function showResult(data) {
         urlInput.onclick = function() { this.select(); };
 
         dlAnchor.href = data.download_url;
-        dlAnchor.download = data.filename;
+        dlAnchor.download = 'config.yaml';
     } else {
         dlSection.style.display = 'none';
     }
@@ -109,7 +109,7 @@ function showResult(data) {
     }
 
     // Show status
-    showStatus(`转换成功！共 ${data.count} 个节点，文件 ${data.filename || ''} 已生成`, 'success');
+    showStatus(`转换成功！共 ${data.count} 个节点，下载链接已生成`, 'success');
 
     // Scroll to result
     document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });

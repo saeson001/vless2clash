@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - Debian 12 部署/更新/卸载脚本
-# 版本: v1.1.0
+# 版本: v1.2.0
 # 作者: saeson
 # 用法:
 #   交互菜单: sudo bash deploy.sh
@@ -13,7 +13,7 @@
 
 set -e
 
-VERSION="v1.1.0"
+VERSION="v1.2.0"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"

@@ -7,16 +7,22 @@ Flask Web Application for converting VLESS links to Clash/Mihomo Party compatibl
 import re
 import os
 import glob
+import json
 import base64
+import string
+import secrets
 import requests
 from urllib.parse import unquote, parse_qs
-from flask import Flask, render_template, request, jsonify, Response, send_from_directory
+from flask import Flask, render_template, request, jsonify, Response, send_from_directory, abort
 
 app = Flask(__name__)
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+
+# Token-to-filename mapping file (persists across restarts)
+TOKEN_MAP_FILE = os.path.join(DOWNLOADS_DIR, "_token_map.json")
 
 
 def parse_vless(vless_url):
@@ -287,23 +293,59 @@ def fetch_subscription(url):
 
 
 # ---------------------------------------------------------------------------
-# File management
+# File management — obfuscated random tokens instead of sequential numbers
 # ---------------------------------------------------------------------------
 
-def get_next_filename():
-    """Get the next incrementing filename: 00001.yaml, 00002.yaml, ..."""
-    existing = glob.glob(os.path.join(DOWNLOADS_DIR, "*.yaml"))
-    max_num = 0
-    for f in existing:
-        basename = os.path.basename(f)
-        name_part = basename.rsplit(".", 1)[0]
-        try:
-            num = int(name_part)
-            if num > max_num:
-                max_num = num
-        except ValueError:
-            continue
-    return f"{max_num + 1:05d}.yaml"
+def _load_token_map():
+    """Load the token-to-filename mapping from disk."""
+    try:
+        with open(TOKEN_MAP_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_token_map(mapping):
+    """Persist the token-to-filename mapping to disk."""
+    with open(TOKEN_MAP_FILE, "w", encoding="utf-8") as f:
+        json.dump(mapping, f, ensure_ascii=False)
+
+
+def generate_random_token(length=16):
+    """Generate a random alphanumeric token, e.g. 'k7m3xz9fqw2a8p1d'."""
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def create_obfuscated_file(yaml_content):
+    """Save YAML content with a random token filename and return the token.
+
+    Returns the token string (without extension). The actual file on disk is
+    <token>.yaml, but the URL served to the user is /d/<token> — no extension,
+    no sequential numbering, no guessable pattern.
+    """
+    token_map = _load_token_map()
+
+    # Generate a unique token (retry on collision)
+    token = generate_random_token()
+    while token in token_map:
+        token = generate_random_token()
+
+    filename = f"{token}.yaml"
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(yaml_content)
+
+    token_map[token] = filename
+    _save_token_map(token_map)
+
+    return token
+
+
+def resolve_token(token):
+    """Resolve a token to its actual filename on disk. Returns None if not found."""
+    token_map = _load_token_map()
+    return token_map.get(token)
 
 
 # ---------------------------------------------------------------------------
@@ -383,44 +425,51 @@ def convert():
 
     yaml_content = generate_clash_yaml(proxies, config)
 
-    # Save to file with incrementing name
-    filename = get_next_filename()
-    filepath = os.path.join(DOWNLOADS_DIR, filename)
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(yaml_content)
+    # Save to file with obfuscated random token
+    token = create_obfuscated_file(yaml_content)
 
-    # Build download URL
-    download_url = f"/files/{filename}"
+    # Build download URL — no extension, no sequential numbering
+    download_url = f"/d/{token}"
 
     return jsonify({
         "yaml": yaml_content,
         "count": len(proxies),
         "errors": errors,
-        "filename": filename,
+        "token": token,
         "download_url": download_url,
         "proxies": [{"name": p["name"], "server": p["server"], "port": p["port"]} for p in proxies],
     })
 
 
+@app.route("/d/<token>")
+def serve_by_token(token):
+    """Serve a YAML file by its random token — URL shows no filename or extension."""
+    filename = resolve_token(token)
+    if not filename:
+        abort(404)
+    return send_from_directory(DOWNLOADS_DIR, filename, mimetype="text/yaml")
+
+
 @app.route("/files/<path:filename>")
 def serve_file(filename):
-    """Serve a saved YAML file (also works as Clash subscription import URL)."""
+    """Legacy route — still works for backward compatibility."""
     return send_from_directory(DOWNLOADS_DIR, filename, mimetype="text/yaml")
 
 
 @app.route("/api/files")
 def list_files():
-    """List all saved YAML files."""
-    files = sorted(glob.glob(os.path.join(DOWNLOADS_DIR, "*.yaml")))
+    """List all saved YAML files (shows tokens, not real filenames)."""
+    token_map = _load_token_map()
     result = []
-    for f in files:
-        basename = os.path.basename(f)
-        result.append({
-            "filename": basename,
-            "url": f"/files/{basename}",
-            "size": os.path.getsize(f),
-        })
-    return jsonify({"files": result})
+    for token, filename in sorted(token_map.items()):
+        filepath = os.path.join(DOWNLOADS_DIR, filename)
+        if os.path.exists(filepath):
+            result.append({
+                "token": token,
+                "url": f"/d/{token}",
+                "size": os.path.getsize(filepath),
+            })
+    return jsonify({"files": result, "count": len(result)})
 
 
 if __name__ == "__main__":
