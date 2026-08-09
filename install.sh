@@ -185,9 +185,13 @@ done
 echo ""
 echo "[4/4] 执行部署脚本 ($ACTION)..."
 
-# 直接在解压目录中执行 deploy.sh（SCRIPT_DIR 需指向应用文件所在目录）
-chmod +x "$EXTRACTED_DIR/deploy.sh"
-bash "$EXTRACTED_DIR/deploy.sh" "$ACTION"
+# 将解压目录中的所有文件复制到 TEMP_DIR，确保 deploy.sh 的 SCRIPT_DIR 能找到 app.py 等文件
+cp -r "$EXTRACTED_DIR"/* "$TEMP_DIR/" 2>/dev/null || true
+cp -r "$EXTRACTED_DIR"/.gitignore "$TEMP_DIR/" 2>/dev/null || true
+chmod +x "$TEMP_DIR/deploy.sh"
+
+# 执行对应的动作
+bash "$TEMP_DIR/deploy.sh" "$ACTION"
 
 # 清理临时文件
 rm -rf "$TEMP_DIR"
