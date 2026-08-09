@@ -40,6 +40,7 @@ function showDashboard() {
     document.getElementById('login-view').style.display = 'none';
     document.getElementById('dashboard-view').style.display = 'block';
     loadStats();
+    loadDailyStats();
     loadRecords();
 }
 
@@ -149,6 +150,52 @@ function loadStats() {
             `).join('');
             document.getElementById('top-ips-card').style.display = 'block';
         }
+    })
+    .catch(() => {});
+}
+
+// ===== Daily Stats =====
+
+function loadDailyStats() {
+    fetch('/api/admin/daily-stats?days=7', { credentials: 'same-origin' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            if (data.error === '未授权') {
+                showLogin();
+            }
+            return;
+        }
+        document.getElementById('stat-today-count').textContent = data.today_count;
+        document.getElementById('stat-week-count').textContent = data.week_count;
+
+        // Render daily breakdown table
+        const tbody = document.getElementById('daily-tbody');
+        if (!data.daily || data.daily.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="table-empty">暂无数据</td></tr>';
+            return;
+        }
+
+        // Find max count for visual bar
+        const maxCount = Math.max(1, ...data.daily.map(d => d.count));
+
+        tbody.innerHTML = data.daily.map(d => {
+            const barWidth = Math.round((d.count / maxCount) * 100);
+            const barColor = d.is_today ? '#4c6ef5' : '#6c757d';
+            return `
+                <tr class="${d.is_today ? 'daily-row-today' : ''}">
+                    <td>${formatDate(d.date)}</td>
+                    <td>
+                        <span class="daily-count">${d.count} 次</span>
+                        <div class="daily-bar-bg">
+                            <div class="daily-bar" style="width:${barWidth}%;background:${barColor};"></div>
+                        </div>
+                    </td>
+                    <td>${d.nodes} 个</td>
+                    <td>${d.is_today ? '<span class="badge badge-today">今天</span>' : ''}</td>
+                </tr>
+            `;
+        }).join('');
     })
     .catch(() => {});
 }
@@ -442,6 +489,18 @@ function formatTime(isoStr) {
                String(d.getSeconds()).padStart(2, '0');
     } catch {
         return isoStr;
+    }
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    try {
+        const parts = dateStr.split('-');
+        const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return `${parts[1]}月${parts[2]}日 (周${weekdays[d.getDay()]})`;
+    } catch {
+        return dateStr;
     }
 }
 

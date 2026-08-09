@@ -59,7 +59,7 @@
                 <div class="stat-card">
                     <div class="stat-icon">🌐</div>
                     <div class="stat-value" id="stat-total-nodes">-</div>
-                    <div class="stat-label">总转换节点</div>
+                    <div class="stat-label">总节点数</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">🖥</div>
@@ -70,6 +70,39 @@
                     <div class="stat-icon">⏰</div>
                     <div class="stat-value" id="stat-recent-24h">-</div>
                     <div class="stat-label">近 24 小时</div>
+                </div>
+                <div class="stat-card stat-card-highlight">
+                    <div class="stat-icon">📅</div>
+                    <div class="stat-value" id="stat-today-count">-</div>
+                    <div class="stat-label">今日更新次数</div>
+                </div>
+                <div class="stat-card stat-card-highlight">
+                    <div class="stat-icon">📈</div>
+                    <div class="stat-value" id="stat-week-count">-</div>
+                    <div class="stat-label">本周更新次数</div>
+                </div>
+            </div>
+
+            <!-- Daily Breakdown -->
+            <div class="card" id="daily-card">
+                <div class="card-header">
+                    <span class="card-icon">📅</span>
+                    <h2>配置更新次数趋势 (近 7 天)</h2>
+                </div>
+                <div class="table-wrapper">
+                    <table class="records-table daily-table">
+                        <thead>
+                            <tr>
+                                <th>日期</th>
+                                <th>更新次数</th>
+                                <th>生成节点数</th>
+                                <th>标记</th>
+                            </tr>
+                        </thead>
+                        <tbody id="daily-tbody">
+                            <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

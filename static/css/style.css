@@ -1001,3 +1001,59 @@ textarea:focus {
         gap: 4px;
     }
 }
+
+/* ===== Daily Stats ===== */
+
+.stat-card-highlight {
+    border-left: 3px solid #4c6ef5;
+}
+
+.daily-table th {
+    font-size: 12px;
+    padding: 10px 12px;
+}
+
+.daily-table td {
+    padding: 10px 12px;
+    vertical-align: middle;
+}
+
+.daily-row-today {
+    background: rgba(76, 110, 245, 0.06);
+}
+
+.daily-count {
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-right: 8px;
+}
+
+.daily-bar-bg {
+    display: inline-block;
+    width: 120px;
+    height: 8px;
+    background: #eee;
+    border-radius: 4px;
+    vertical-align: middle;
+    overflow: hidden;
+}
+
+.daily-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+    min-width: 2px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.badge-today {
+    background: #4c6ef5;
+    color: #fff;
+}

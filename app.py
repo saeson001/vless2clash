@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.3"
+APP_VERSION = "v1.5.4"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -959,6 +959,65 @@ def admin_stats():
         "unique_ips": unique_ips,
         "recent_24h": recent_24h,
         "top_ips": top_ips,
+    })
+
+
+@app.route("/api/admin/daily-stats")
+def admin_daily_stats():
+    """Get daily conversion counts for the last N days."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    days = int(request.args.get("days", 7))
+
+    conn = get_db()
+
+    # Today's count
+    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+    cursor = conn.execute(
+        "SELECT COUNT(*) as cnt FROM conversion_records WHERE date(created_at) = ?",
+        (today_str,)
+    )
+    today_count = cursor.fetchone()["cnt"]
+
+    # This week's count (Monday to Sunday)
+    now = datetime.datetime.now()
+    monday = now - datetime.timedelta(days=now.weekday())
+    monday_str = monday.strftime("%Y-%m-%d")
+    cursor = conn.execute(
+        "SELECT COUNT(*) as cnt FROM conversion_records WHERE date(created_at) >= ?",
+        (monday_str,)
+    )
+    week_count = cursor.fetchone()["cnt"]
+
+    # Daily breakdown for last N days
+    daily = []
+    for i in range(days - 1, -1, -1):
+        day = now - datetime.timedelta(days=i)
+        day_str = day.strftime("%Y-%m-%d")
+        cursor = conn.execute(
+            "SELECT COUNT(*) as cnt, COALESCE(SUM(node_count), 0) as nodes FROM conversion_records WHERE date(created_at) = ?",
+            (day_str,)
+        )
+        row = cursor.fetchone()
+        daily.append({
+            "date": day_str,
+            "count": row["cnt"],
+            "nodes": row["nodes"],
+            "is_today": day_str == today_str,
+        })
+
+    # Total records (all time)
+    cursor = conn.execute("SELECT COUNT(*) as cnt FROM conversion_records")
+    total_count = cursor.fetchone()["cnt"]
+
+    conn.close()
+
+    return jsonify({
+        "total_count": total_count,
+        "today_count": today_count,
+        "week_count": week_count,
+        "daily": daily,
     })
 
 
