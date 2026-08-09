@@ -12,6 +12,7 @@
 - 可自定义端口、局域网、模式、日志级别、策略组名称
 - 复制链接 / 下载文件 / 复制配置
 - WebUI 显示当前版本号
+- **管理后台**（隐藏入口，支持查询/删除转换记录）
 - 交互式部署脚本（部署 / 更新 / 卸载）
 - 多 Linux 发行版支持
 
@@ -38,6 +39,8 @@ bash <(curl -sL https://raw.githubusercontent.com/saeson001/vless2clash/main/ins
 2. 从 GitHub 下载最新代码
 3. 解压并执行部署
 4. 自动检测：已安装则更新，未安装则全新部署
+
+安装完成后会自动生成管理员账号密码，请注意保存。
 
 ### 一键更新
 
@@ -69,7 +72,7 @@ sudo bash deploy.sh
 
 ```
 1) 部署 (全新安装)
-2) 更新 (覆盖升级，保留 YAML 文件)
+2) 更新 (覆盖升级，保留 YAML 文件和数据库)
 3) 卸载 (完全清除)
 4) 查看版本
 0) 退出
@@ -79,20 +82,48 @@ sudo bash deploy.sh
 
 ## 使用
 
+### 转换工具
+
 部署完成后访问 `http://服务器IP:5000`，粘贴 VLESS 链接，点击「一键转换」即可。
 
 生成的下载链接格式：`http://服务器IP:5000/d/<随机token>`
 
 可将该链接直接粘贴到 Mihomo Party 的订阅导入中使用。
 
+### 管理后台
+
+管理后台入口不在 WebUI 显示，需直接访问：
+
+```
+http://服务器IP:5000/manage
+```
+
+**首次安装**会自动生成管理员账号和随机密码，安装完成后终端会显示，也可查看文件：
+
+```bash
+cat /opt/vless2clash/data/admin_config.json
+```
+
+管理后台功能：
+- 查看所有转换记录（时间、原始链接、转换后配置、转换者 IP）
+- 搜索/筛选记录（按链接内容、IP、token 搜索）
+- 查看记录详情（完整原始 VLESS 链接 + 转换后 YAML）
+- 删除记录（同时删除对应的 YAML 文件和下载链接）
+- 统计概览（总转换次数、总节点数、独立 IP 数、近 24 小时）
+- IP 排行（Top 10）
+- 修改管理员密码
+- 登录后建议立即修改密码并删除 `admin_config.json`
+
 ## 项目结构
 
 ```
 vless2clash/
-├── app.py                  # Flask 后端（VLESS 解析 + YAML 生成）
+├── app.py                  # Flask 后端（VLESS 解析 + YAML 生成 + 管理员认证 + SQLite 记录）
 ├── templates/index.html    # WebUI 页面
+├── templates/manage.html   # 管理后台页面
 ├── static/css/style.css    # 样式
 ├── static/js/app.js        # 前端交互逻辑
+├── static/js/manage.js     # 管理后台交互逻辑
 ├── requirements.txt        # Python 依赖
 ├── install.sh              # 远程一键安装脚本（多发行版）
 ├── deploy.sh               # 部署/更新/卸载脚本（多发行版）

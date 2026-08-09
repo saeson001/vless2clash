@@ -8,6 +8,8 @@ env/
 # Runtime data
 downloads/
 downloads_backup_*/
+backup_*/
+data/
 
 # OS
 .DS_Store

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - VLESS to Clash YAML</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container manage-container">
+        <!-- Login View -->
+        <div id="login-view" class="admin-login-card" style="display:none;">
+            <div class="login-header">
+                <span class="login-icon">🔐</span>
+                <h1>管理后台</h1>
+                <p class="subtitle">VLESS to Clash YAML 转换工具</p>
+                <span class="version-badge">{{ version }}</span>
+            </div>
+            <div class="login-form">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="login-username" placeholder="admin" autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+                </div>
+                <button id="login-btn" class="btn btn-primary btn-full" onclick="doLogin()">
+                    <span class="btn-icon">🔑</span> 登录
+                </button>
+                <div id="login-error" class="login-error" style="display:none;"></div>
+            </div>
+            <div class="login-footer">
+                <a href="/" class="back-link">← 返回转换工具</a>
+            </div>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboard-view" style="display:none;">
+            <header class="manage-header">
+                <div class="manage-header-left">
+                    <h1>🔧 管理后台</h1>
+                    <span class="version-badge">{{ version }}</span>
+                </div>
+                <div class="manage-header-right">
+                    <span id="admin-username" class="admin-user-badge"></span>
+                    <button class="btn btn-small" onclick="showChangePassword()">修改密码</button>
+                    <button class="btn btn-small btn-danger" onclick="doLogout()">退出登录</button>
+                </div>
+            </header>
+
+            <!-- Stats Cards -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="stat-total-records">-</div>
+                    <div class="stat-label">总转换次数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🌐</div>
+                    <div class="stat-value" id="stat-total-nodes">-</div>
+                    <div class="stat-label">总转换节点</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🖥</div>
+                    <div class="stat-value" id="stat-unique-ips">-</div>
+                    <div class="stat-label">独立 IP 数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⏰</div>
+                    <div class="stat-value" id="stat-recent-24h">-</div>
+                    <div class="stat-label">近 24 小时</div>
+                </div>
+            </div>
+
+            <!-- Top IPs -->
+            <div class="card" id="top-ips-card" style="display:none;">
+                <div class="card-header">
+                    <span class="card-icon">📍</span>
+                    <h2>IP 排行 (Top 10)</h2>
+                </div>
+                <div id="top-ips-list" class="top-ips-list"></div>
+            </div>
+
+            <!-- Records Table -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h2>转换记录</h2>
+                </div>
+
+                <div class="filter-bar">
+                    <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input">
+                    <button class="btn btn-small" onclick="loadRecords()">搜索</button>
+                    <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
+                </div>
+
+                <div class="table-wrapper">
+                    <table class="records-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">ID</th>
+                                <th style="width:160px;">时间</th>
+                                <th>原始 VLESS 链接</th>
+                                <th style="width:120px;">IP</th>
+                                <th style="width:60px;">节点</th>
+                                <th style="width:140px;">Token</th>
+                                <th style="width:120px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="records-tbody">
+                            <tr><td colspan="7" class="table-empty">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="pagination">
+                    <button class="btn btn-small" id="prev-page" onclick="changePage(-1)">上一页</button>
+                    <span id="page-info" class="page-info">-</span>
+                    <button class="btn btn-small" id="next-page" onclick="changePage(1)">下一页</button>
+                </div>
+            </div>
+
+            <div class="manage-footer">
+                <a href="/" class="back-link">← 返回转换工具</a>
+            </div>
+        </div>
+
+        <!-- Record Detail Modal -->
+        <div id="detail-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closeDetailModal()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>📋 记录详情</h2>
+                    <button class="modal-close" onclick="closeDetailModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="detail-row">
+                        <label>ID</label>
+                        <span id="detail-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>转换时间</label>
+                        <span id="detail-time"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>转换者 IP</label>
+                        <span id="detail-ip"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>节点数量</label>
+                        <span id="detail-nodes"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>下载 Token</label>
+                        <span id="detail-token"></span>
+                    </div>
+                    <div class="detail-section">
+                        <label>订阅地址</label>
+                        <pre id="detail-subscriptions" class="detail-pre"></pre>
+                    </div>
+                    <div class="detail-section">
+                        <label>原始 VLESS 链接</label>
+                        <pre id="detail-original" class="detail-pre"></pre>
+                    </div>
+                    <div class="detail-section">
+                        <label>转换后 YAML 配置</label>
+                        <pre id="detail-yaml" class="detail-pre yaml-output"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password Modal -->
+        <div id="password-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closePasswordModal()"></div>
+            <div class="modal-content modal-sm">
+                <div class="modal-header">
+                    <h2>🔑 修改密码</h2>
+                    <button class="modal-close" onclick="closePasswordModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>旧密码</label>
+                        <input type="password" id="old-password" autocomplete="current-password">
+                    </div>
+                    <div class="form-group">
+                        <label>新密码 (至少 8 位)</label>
+                        <input type="password" id="new-password" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label>确认新密码</label>
+                        <input type="password" id="confirm-password" autocomplete="new-password">
+                    </div>
+                    <div id="password-error" class="login-error" style="display:none;"></div>
+                    <button class="btn btn-primary btn-full" onclick="submitChangePassword()">确认修改</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirm Modal -->
+        <div id="delete-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closeDeleteModal()"></div>
+            <div class="modal-content modal-sm">
+                <div class="modal-header">
+                    <h2>⚠️ 确认删除</h2>
+                    <button class="modal-close" onclick="closeDeleteModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <p>确定要删除这条记录吗？</p>
+                    <p class="delete-warning">删除后，对应的 YAML 文件和下载链接将一并删除，此操作不可逆。</p>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="closeDeleteModal()">取消</button>
+                        <button class="btn btn-danger" id="confirm-delete-btn" onclick="confirmDelete()">确认删除</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ADMIN_LOGGED_IN = {{ logged_in | tojson | safe if logged_in is not none else 'false' }};
+    </script>
+    <script src="{{ url_for('static', filename='js/manage.js') }}"></script>
+</body>
+</html>

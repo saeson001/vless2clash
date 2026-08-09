@@ -1,0 +1,338 @@
+// ===== Admin Management Script =====
+
+let currentPage = 1;
+let totalPages = 1;
+let perPage = 20;
+let deleteTargetId = null;
+
+// ===== Init =====
+
+(function init() {
+    if (ADMIN_LOGGED_IN) {
+        showDashboard();
+    } else {
+        showLogin();
+    }
+})();
+
+// ===== View Switching =====
+
+function showLogin() {
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('dashboard-view').style.display = 'none';
+    // Auto-focus username
+    setTimeout(() => document.getElementById('login-username').focus(), 100);
+}
+
+function showDashboard() {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('dashboard-view').style.display = 'block';
+    loadStats();
+    loadRecords();
+}
+
+// ===== Login / Logout =====
+
+function doLogin() {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    if (!username || !password) {
+        showLoginError('请输入用户名和密码');
+        return;
+    }
+
+    const btn = document.getElementById('login-btn');
+    btn.disabled = true;
+    btn.textContent = '登录中...';
+
+    fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+    .then(resp => resp.json().then(data => ({ ok: resp.ok, data })))
+    .then(({ ok, data }) => {
+        if (ok && data.success) {
+            showDashboard();
+        } else {
+            showLoginError(data.error || '登录失败');
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
+        }
+    })
+    .catch(() => {
+        showLoginError('网络错误，请重试');
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
+    });
+}
+
+function doLogout() {
+    fetch('/api/admin/logout', { method: 'POST' })
+    .then(() => {
+        showLogin();
+        document.getElementById('login-password').value = '';
+    })
+    .catch(() => showLogin());
+}
+
+function showLoginError(msg) {
+    const el = document.getElementById('login-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+// Enter key to login
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.getElementById('login-view').style.display !== 'none') {
+        doLogin();
+    }
+});
+
+// ===== Stats =====
+
+function loadStats() {
+    fetch('/api/admin/stats')
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) return;
+        document.getElementById('stat-total-records').textContent = data.total_records;
+        document.getElementById('stat-total-nodes').textContent = data.total_nodes;
+        document.getElementById('stat-unique-ips').textContent = data.unique_ips;
+        document.getElementById('stat-recent-24h').textContent = data.recent_24h;
+
+        // Top IPs
+        if (data.top_ips && data.top_ips.length > 0) {
+            const list = document.getElementById('top-ips-list');
+            list.innerHTML = data.top_ips.map(ip => `
+                <div class="top-ip-row">
+                    <span class="top-ip-addr">${escapeHtml(ip.ip)}</span>
+                    <span class="top-ip-count">${ip.count} 次</span>
+                    <span class="top-ip-time">${formatTime(ip.last_seen)}</span>
+                </div>
+            `).join('');
+            document.getElementById('top-ips-card').style.display = 'block';
+        }
+    })
+    .catch(() => {});
+}
+
+// ===== Records Table =====
+
+function loadRecords() {
+    const search = document.getElementById('search-input').value.trim();
+    const tbody = document.getElementById('records-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" class="table-empty">加载中...</td></tr>';
+
+    fetch(`/api/admin/records?page=${currentPage}&per_page=${perPage}&search=${encodeURIComponent(search)}`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            tbody.innerHTML = `<tr><td colspan="7" class="table-empty error-text">${escapeHtml(data.error)}</td></tr>`;
+            return;
+        }
+
+        totalPages = data.total_pages;
+        document.getElementById('page-info').textContent = `第 ${data.page} / ${totalPages} 页 (共 ${data.total} 条)`;
+
+        // Pagination buttons
+        document.getElementById('prev-page').disabled = data.page <= 1;
+        document.getElementById('next-page').disabled = data.page >= totalPages;
+
+        if (data.records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="table-empty">暂无记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.records.map(r => `
+            <tr>
+                <td>${r.id}</td>
+                <td class="cell-time">${formatTime(r.created_at)}</td>
+                <td class="cell-links">${truncate(escapeHtml(r.original_links || '(订阅转换)'), 60)}</td>
+                <td class="cell-ip">${escapeHtml(r.client_ip)}</td>
+                <td>${r.node_count}</td>
+                <td class="cell-token">${escapeHtml(r.token)}</td>
+                <td class="cell-actions">
+                    <button class="btn btn-small" onclick="showDetail(${r.id})">详情</button>
+                    <button class="btn btn-small btn-danger" onclick="askDelete(${r.id})">删除</button>
+                </td>
+            </tr>
+        `).join('');
+    })
+    .catch(() => {
+        tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">加载失败</td></tr>';
+    });
+}
+
+function clearFilters() {
+    document.getElementById('search-input').value = '';
+    currentPage = 1;
+    loadRecords();
+}
+
+function changePage(delta) {
+    const newPage = currentPage + delta;
+    if (newPage < 1 || newPage > totalPages) return;
+    currentPage = newPage;
+    loadRecords();
+}
+
+// ===== Record Detail =====
+
+function showDetail(id) {
+    fetch(`/api/admin/records/${id}`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        document.getElementById('detail-id').textContent = data.id;
+        document.getElementById('detail-time').textContent = formatTime(data.created_at);
+        document.getElementById('detail-ip').textContent = data.client_ip;
+        document.getElementById('detail-nodes').textContent = data.node_count + ' 个';
+        document.getElementById('detail-token').textContent = data.token;
+        document.getElementById('detail-subscriptions').textContent = data.subscription_urls || '(无)';
+        document.getElementById('detail-original').textContent = data.original_links || '(无)';
+        document.getElementById('detail-yaml').textContent = data.yaml_content || '(无)';
+        document.getElementById('detail-modal').style.display = 'flex';
+    })
+    .catch(() => alert('加载详情失败'));
+}
+
+function closeDetailModal() {
+    document.getElementById('detail-modal').style.display = 'none';
+}
+
+// ===== Delete Record =====
+
+function askDelete(id) {
+    deleteTargetId = id;
+    document.getElementById('delete-modal').style.display = 'flex';
+}
+
+function closeDeleteModal() {
+    document.getElementById('delete-modal').style.display = 'none';
+    deleteTargetId = null;
+}
+
+function confirmDelete() {
+    if (!deleteTargetId) return;
+
+    const btn = document.getElementById('confirm-delete-btn');
+    btn.disabled = true;
+    btn.textContent = '删除中...';
+
+    fetch(`/api/admin/records/${deleteTargetId}`, { method: 'DELETE' })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            closeDeleteModal();
+            loadRecords();
+            loadStats();
+        } else {
+            alert(data.error || '删除失败');
+        }
+    })
+    .catch(() => alert('删除失败'))
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = '确认删除';
+    });
+}
+
+// ===== Change Password =====
+
+function showChangePassword() {
+    document.getElementById('old-password').value = '';
+    document.getElementById('new-password').value = '';
+    document.getElementById('confirm-password').value = '';
+    document.getElementById('password-error').style.display = 'none';
+    document.getElementById('password-modal').style.display = 'flex';
+}
+
+function closePasswordModal() {
+    document.getElementById('password-modal').style.display = 'none';
+}
+
+function submitChangePassword() {
+    const oldPwd = document.getElementById('old-password').value;
+    const newPwd = document.getElementById('new-password').value;
+    const confirmPwd = document.getElementById('confirm-password').value;
+
+    if (!oldPwd || !newPwd || !confirmPwd) {
+        showPasswordError('请填写所有字段');
+        return;
+    }
+
+    if (newPwd !== confirmPwd) {
+        showPasswordError('两次输入的新密码不一致');
+        return;
+    }
+
+    if (newPwd.length < 8) {
+        showPasswordError('新密码至少 8 个字符');
+        return;
+    }
+
+    fetch('/api/admin/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            closePasswordModal();
+            alert('密码修改成功，请重新登录');
+            doLogout();
+        } else {
+            showPasswordError(data.error || '修改失败');
+        }
+    })
+    .catch(() => showPasswordError('网络错误'));
+}
+
+function showPasswordError(msg) {
+    const el = document.getElementById('password-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+// ===== Utilities =====
+
+function formatTime(isoStr) {
+    if (!isoStr) return '-';
+    try {
+        const d = new Date(isoStr);
+        return d.getFullYear() + '-' +
+               String(d.getMonth() + 1).padStart(2, '0') + '-' +
+               String(d.getDate()).padStart(2, '0') + ' ' +
+               String(d.getHours()).padStart(2, '0') + ':' +
+               String(d.getMinutes()).padStart(2, '0') + ':' +
+               String(d.getSeconds()).padStart(2, '0');
+    } catch {
+        return isoStr;
+    }
+}
+
+function truncate(str, maxLen) {
+    if (str.length <= maxLen) return str;
+    return str.substring(0, maxLen) + '...';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modals on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeDetailModal();
+        closePasswordModal();
+        closeDeleteModal();
+    }
+});

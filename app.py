@@ -11,14 +11,21 @@ import json
 import base64
 import string
 import secrets
+import hashlib
+import sqlite3
+import datetime
 import requests
 from urllib.parse import unquote, parse_qs
-from flask import Flask, render_template, request, jsonify, Response, send_from_directory, abort
+from flask import (
+    Flask, render_template, request, jsonify, Response,
+    send_from_directory, abort, session, redirect, url_for
+)
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.4.0"
+APP_VERSION = "v1.5.0"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -27,6 +34,196 @@ os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 # Token-to-filename mapping file (persists across restarts)
 TOKEN_MAP_FILE = os.path.join(DOWNLOADS_DIR, "_token_map.json")
 
+# SQLite database for conversion records
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "records.db")
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+# Admin config file
+ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "admin_config.json")
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+def get_db():
+    """Get a SQLite connection (row factory for dict-like access)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Create tables if they don't exist."""
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversion_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            original_links TEXT NOT NULL,
+            subscription_urls TEXT DEFAULT '',
+            yaml_content TEXT NOT NULL,
+            client_ip TEXT NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            filename TEXT NOT NULL,
+            node_count INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            last_login TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def init_admin():
+    """Initialize default admin account if none exists.
+
+    On first run, creates admin user with a random password.
+    The password is written to admin_config.json for the deploy script to display.
+    """
+    conn = get_db()
+    cursor = conn.execute("SELECT COUNT(*) as cnt FROM admin_users")
+    count = cursor.fetchone()["cnt"]
+
+    if count == 0:
+        # Generate random password
+        alphabet = string.ascii_letters + string.digits
+        raw_password = "".join(secrets.choice(alphabet) for _ in range(16))
+        salt = secrets.token_hex(16)
+        password_hash = hashlib.sha256((salt + raw_password).encode()).hexdigest()
+        now = datetime.datetime.now().isoformat()
+
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
+            ("admin", password_hash, salt, now)
+        )
+        conn.commit()
+
+        # Save plaintext to config file (one-time, for display during install)
+        config = {
+            "username": "admin",
+            "password": raw_password,
+            "note": "Please change this password after first login. Delete this file after recording."
+        }
+        with open(ADMIN_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        os.chmod(ADMIN_CONFIG_FILE, 0o600)
+
+    conn.close()
+
+
+def verify_admin(username, password):
+    """Verify admin credentials. Returns True if valid."""
+    conn = get_db()
+    cursor = conn.execute(
+        "SELECT * FROM admin_users WHERE username = ?",
+        (username,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return False
+
+    password_hash = hashlib.sha256((row["salt"] + password).encode()).hexdigest()
+    if password_hash == row["password_hash"]:
+        # Update last login
+        conn = get_db()
+        conn.execute(
+            "UPDATE admin_users SET last_login = ? WHERE username = ?",
+            (datetime.datetime.now().isoformat(), username)
+        )
+        conn.commit()
+        conn.close()
+        return True
+    return False
+
+
+def change_admin_password(username, old_password, new_password):
+    """Change admin password. Returns (success, message)."""
+    if not verify_admin(username, old_password):
+        return False, "旧密码不正确"
+
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((salt + new_password).encode()).hexdigest()
+    conn = get_db()
+    conn.execute(
+        "UPDATE admin_users SET password_hash = ?, salt = ? WHERE username = ?",
+        (password_hash, salt, username)
+    )
+    conn.commit()
+    conn.close()
+    return True, "密码修改成功"
+
+
+def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count):
+    """Insert a conversion record into the database."""
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO conversion_records
+           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            datetime.datetime.now().isoformat(),
+            original_links,
+            subscription_urls,
+            yaml_content,
+            client_ip,
+            token,
+            filename,
+            node_count
+        )
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_record(record_id):
+    """Delete a conversion record and its file from disk."""
+    conn = get_db()
+    cursor = conn.execute("SELECT token, filename FROM conversion_records WHERE id = ?", (record_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False
+
+    token = row["token"]
+    filename = row["filename"]
+
+    # Remove from token map
+    token_map = _load_token_map()
+    if token in token_map:
+        del token_map[token]
+        _save_token_map(token_map)
+
+    # Remove file from disk
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+    # Remove from database
+    conn.execute("DELETE FROM conversion_records WHERE id = ?", (record_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# Initialize DB on import
+init_db()
+init_admin()
+
+
+# ---------------------------------------------------------------------------
+# VLESS Parser & YAML Generator
+# ---------------------------------------------------------------------------
 
 def parse_vless(vless_url):
     """Parse a VLESS URL into a proxy config dict.
@@ -277,10 +474,8 @@ def fetch_subscription(url):
 
     # Try base64 decode (common for v2ray subscriptions)
     try:
-        # Remove whitespace/newlines for base64 decoding
         b64_content = content.replace("\n", "").replace("\r", "").replace(" ", "")
         decoded = base64.b64decode(b64_content).decode("utf-8")
-        # Check if decoded content looks like proxy links
         if "vless://" in decoded or "vmess://" in decoded or "trojan://" in decoded:
             content = decoded
     except Exception:
@@ -352,7 +547,25 @@ def resolve_token(token):
 
 
 # ---------------------------------------------------------------------------
-# Routes
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def is_admin_logged_in():
+    """Check if the current session has admin privileges."""
+    return session.get("admin_user") is not None
+
+
+def get_client_ip():
+    """Get the real client IP, accounting for reverse proxy headers."""
+    if request.headers.get("X-Forwarded-For"):
+        return request.headers.get("X-Forwarded-For").split(",")[0].strip()
+    if request.headers.get("X-Real-IP"):
+        return request.headers.get("X-Real-IP").strip()
+    return request.remote_addr or "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Routes — Public
 # ---------------------------------------------------------------------------
 
 @app.route("/")
@@ -436,6 +649,19 @@ def convert():
 
     # Save to file with obfuscated random token
     token = create_obfuscated_file(yaml_content)
+    filename = f"{token}.yaml"
+
+    # Record conversion in database
+    client_ip = get_client_ip()
+    record_conversion(
+        original_links=raw_links,
+        subscription_urls=sub_urls,
+        yaml_content=yaml_content,
+        client_ip=client_ip,
+        token=token,
+        filename=filename,
+        node_count=len(proxies)
+    )
 
     # Build download URL — no extension, no sequential numbering
     download_url = f"/d/{token}"
@@ -479,6 +705,242 @@ def list_files():
                 "size": os.path.getsize(filepath),
             })
     return jsonify({"files": result, "count": len(result)})
+
+
+# ---------------------------------------------------------------------------
+# Routes — Admin
+# ---------------------------------------------------------------------------
+
+@app.route("/manage")
+def manage():
+    """Admin entry point — shows login or dashboard depending on session."""
+    if not is_admin_logged_in():
+        return render_template("manage.html", logged_in=False, version=APP_VERSION)
+    return render_template("manage.html", logged_in=True, version=APP_VERSION)
+
+
+@app.route("/api/admin/login", methods=["POST"])
+def admin_login():
+    """Admin login endpoint."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+
+    if not username or not password:
+        return jsonify({"error": "用户名和密码不能为空"}), 400
+
+    if verify_admin(username, password):
+        session["admin_user"] = username
+        session.permanent = True
+        return jsonify({"success": True, "message": "登录成功"})
+    else:
+        return jsonify({"error": "用户名或密码错误"}), 401
+
+
+@app.route("/api/admin/logout", methods=["POST"])
+def admin_logout():
+    """Admin logout endpoint."""
+    session.pop("admin_user", None)
+    return jsonify({"success": True, "message": "已退出登录"})
+
+
+@app.route("/api/admin/check")
+def admin_check():
+    """Check if admin is logged in."""
+    return jsonify({"logged_in": is_admin_logged_in(), "username": session.get("admin_user")})
+
+
+@app.route("/api/admin/records")
+def admin_records():
+    """List conversion records with optional filtering.
+
+    Query params:
+      - page: page number (default 1)
+      - per_page: items per page (default 20, max 100)
+      - search: search in original_links, client_ip, token
+      - ip: filter by IP
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    page = int(request.args.get("page", 1))
+    per_page = min(int(request.args.get("per_page", 20)), 100)
+    search = request.args.get("search", "").strip()
+    ip_filter = request.args.get("ip", "").strip()
+
+    offset = (page - 1) * per_page
+
+    conn = get_db()
+
+    # Build query
+    where_clauses = []
+    params = []
+
+    if search:
+        where_clauses.append("(original_links LIKE ? OR client_ip LIKE ? OR token LIKE ?)")
+        params.extend([f"%{search}%"] * 3)
+
+    if ip_filter:
+        where_clauses.append("client_ip LIKE ?")
+        params.append(f"%{ip_filter}%")
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    # Get total count
+    cursor = conn.execute(f"SELECT COUNT(*) as cnt FROM conversion_records {where_sql}", params)
+    total = cursor.fetchone()["cnt"]
+
+    # Get records (exclude full yaml_content for list view)
+    cursor = conn.execute(
+        f"""SELECT id, created_at, original_links, subscription_urls, client_ip,
+                  token, node_count,
+                  length(yaml_content) as yaml_size
+           FROM conversion_records {where_sql}
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?""",
+        params + [per_page, offset]
+    )
+    records = []
+    for row in cursor.fetchall():
+        records.append({
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "original_links": row["original_links"],
+            "subscription_urls": row["subscription_urls"],
+            "client_ip": row["client_ip"],
+            "token": row["token"],
+            "node_count": row["node_count"],
+            "yaml_size": row["yaml_size"],
+        })
+
+    conn.close()
+
+    return jsonify({
+        "records": records,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page if per_page > 0 else 0,
+    })
+
+
+@app.route("/api/admin/records/<int:record_id>")
+def admin_record_detail(record_id):
+    """Get full detail of a single record (includes full YAML content)."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    conn = get_db()
+    cursor = conn.execute(
+        "SELECT * FROM conversion_records WHERE id = ?",
+        (record_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "记录不存在"}), 404
+
+    return jsonify({
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "original_links": row["original_links"],
+        "subscription_urls": row["subscription_urls"],
+        "yaml_content": row["yaml_content"],
+        "client_ip": row["client_ip"],
+        "token": row["token"],
+        "filename": row["filename"],
+        "node_count": row["node_count"],
+    })
+
+
+@app.route("/api/admin/records/<int:record_id>", methods=["DELETE"])
+def admin_delete_record(record_id):
+    """Delete a conversion record and its file."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    success = delete_record(record_id)
+    if success:
+        return jsonify({"success": True, "message": "记录已删除"})
+    else:
+        return jsonify({"error": "记录不存在或删除失败"}), 404
+
+
+@app.route("/api/admin/stats")
+def admin_stats():
+    """Get summary statistics for the admin dashboard."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    conn = get_db()
+
+    # Total records
+    cursor = conn.execute("SELECT COUNT(*) as cnt FROM conversion_records")
+    total_records = cursor.fetchone()["cnt"]
+
+    # Total nodes converted
+    cursor = conn.execute("SELECT COALESCE(SUM(node_count), 0) as total_nodes FROM conversion_records")
+    total_nodes = cursor.fetchone()["total_nodes"]
+
+    # Unique IPs
+    cursor = conn.execute("SELECT COUNT(DISTINCT client_ip) as cnt FROM conversion_records")
+    unique_ips = cursor.fetchone()["cnt"]
+
+    # Records in last 24 hours
+    cutoff = (datetime.datetime.now() - datetime.timedelta(hours=24)).isoformat()
+    cursor = conn.execute("SELECT COUNT(*) as cnt FROM conversion_records WHERE created_at > ?", (cutoff,))
+    recent_24h = cursor.fetchone()["cnt"]
+
+    # Top 10 IPs by record count
+    cursor = conn.execute(
+        """SELECT client_ip, COUNT(*) as cnt, MAX(created_at) as last_seen
+           FROM conversion_records
+           GROUP BY client_ip
+           ORDER BY cnt DESC
+           LIMIT 10"""
+    )
+    top_ips = [{"ip": row["client_ip"], "count": row["cnt"], "last_seen": row["last_seen"]} for row in cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        "total_records": total_records,
+        "total_nodes": total_nodes,
+        "unique_ips": unique_ips,
+        "recent_24h": recent_24h,
+        "top_ips": top_ips,
+    })
+
+
+@app.route("/api/admin/change-password", methods=["POST"])
+def admin_change_password():
+    """Change admin password."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    old_password = data.get("old_password", "")
+    new_password = data.get("new_password", "")
+
+    if len(new_password) < 8:
+        return jsonify({"error": "新密码至少 8 个字符"}), 400
+
+    username = session.get("admin_user")
+    success, message = change_admin_password(username, old_password, new_password)
+
+    if success:
+        return jsonify({"success": True, "message": message})
+    else:
+        return jsonify({"error": message}), 400
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.4.0
+# 版本: v1.5.0
 # 作者: saeson
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
 #       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
@@ -15,7 +15,7 @@
 
 set -e
 
-VERSION="v1.4.0"
+VERSION="v1.5.0"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -236,18 +236,24 @@ do_update() {
     systemctl stop "$APP_NAME" 2>/dev/null || true
     echo "  -> 服务已停止"
 
-    echo "[2/6] 备份已生成的 YAML 文件..."
-    BACKUP_DIR="${APP_DIR}/downloads_backup_$(date +%Y%m%d%H%M%S)"
+    echo "[2/6] 备份已生成的 YAML 文件和数据库..."
+    BACKUP_DIR="${APP_DIR}/backup_$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
     if [ -d "${APP_DIR}/downloads" ]; then
-        cp -r "${APP_DIR}/downloads" "$BACKUP_DIR"
-        echo "  -> 已备份到 $BACKUP_DIR"
+        cp -r "${APP_DIR}/downloads" "$BACKUP_DIR/downloads"
+        echo "  -> YAML 文件已备份到 $BACKUP_DIR/downloads"
     else
-        echo "  -> 无 downloads 目录，跳过备份"
+        echo "  -> 无 downloads 目录，跳过"
+    fi
+    if [ -d "${APP_DIR}/data" ]; then
+        cp -r "${APP_DIR}/data" "$BACKUP_DIR/data"
+        echo "  -> 数据库已备份到 $BACKUP_DIR/data"
     fi
 
     echo "[3/6] 更新应用文件..."
     cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$APP_DIR/"
-    mkdir -p "$APP_DIR/downloads"
+    mkdir -p "$APP_DIR/downloads" "$APP_DIR/data"
+    # Preserve existing database and admin config (do not overwrite)
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
     echo "  -> 应用文件已更新"
 
@@ -324,7 +330,7 @@ do_install() {
     echo "[3/7] 部署应用文件..."
     mkdir -p "$APP_DIR"
     cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$APP_DIR/"
-    mkdir -p "$APP_DIR/downloads"
+    mkdir -p "$APP_DIR/downloads" "$APP_DIR/data"
     echo "$VERSION" > "${APP_DIR}/VERSION"
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
     echo "  -> 文件已复制到 $APP_DIR"
@@ -378,6 +384,35 @@ EOF
     echo "  WebUI 地址:  http://<服务器IP>:${APP_PORT}"
     echo "  本机访问:    http://localhost:${APP_PORT}"
     echo ""
+    echo "  管理后台:    http://<服务器IP>:${APP_PORT}/manage"
+    echo "  ────────────────────────────────────────"
+    echo "  ⚠️  首次安装会自动生成管理员密码"
+    echo "  请查看下方密码信息，登录后请立即修改！"
+    echo "  ────────────────────────────────────────"
+
+    # Display admin credentials if available
+    sleep 3
+    if [ -f "${APP_DIR}/data/admin_config.json" ]; then
+        echo ""
+        echo "  ╔══════════════════════════════════════╗"
+        echo "  ║        管理员初始账号信息             ║"
+        echo "  ╠══════════════════════════════════════╣"
+        ADMIN_USER=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['username'])" 2>/dev/null || cat "${APP_DIR}/data/admin_config.json" | grep -o '"username":[^,}]*' | cut -d'"' -f4)
+        ADMIN_PASS=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['password'])" 2>/dev/null || cat "${APP_DIR}/data/admin_config.json" | grep -o '"password":[^,}]*' | cut -d'"' -f4)
+        echo "  ║  用户名: $ADMIN_USER"
+        echo "  ║  密码:   $ADMIN_PASS"
+        echo "  ╚══════════════════════════════════════╝"
+        echo ""
+        echo "  ⚠️  请妥善保存！登录后建议立即修改密码。"
+        echo "  密码文件位置: ${APP_DIR}/data/admin_config.json"
+        echo "  （修改密码后可安全删除此文件）"
+    else
+        echo ""
+        echo "  [提示] 管理员账号将在首次启动时自动生成"
+        echo "  请运行: cat ${APP_DIR}/data/admin_config.json"
+    fi
+
+    echo ""
     echo "  常用命令:"
     echo "    查看状态:  systemctl status ${APP_NAME}"
     echo "    重启服务:  systemctl restart ${APP_NAME}"
@@ -387,6 +422,7 @@ EOF
     echo "    卸载服务:  sudo bash deploy.sh uninstall"
     echo ""
     echo "  生成的 YAML 文件保存在: ${APP_DIR}/downloads/"
+    echo "  转换记录数据库:         ${APP_DIR}/data/records.db"
     echo "  下载链接格式: http://<服务器IP>:${APP_PORT}/d/<随机token>"
     echo "  可直接在 Mihomo Party 中作为订阅链接导入"
     echo ""
