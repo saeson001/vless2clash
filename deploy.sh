@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - Debian 12 部署/更新/卸载脚本
-# 版本: v1.2.0
+# 版本: v1.3.0
 # 作者: saeson
 # 用法:
 #   交互菜单: sudo bash deploy.sh
@@ -13,7 +13,7 @@
 
 set -e
 
-VERSION="v1.2.0"
+VERSION="v1.3.0"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -260,7 +260,7 @@ EOF
     echo "    卸载服务:  sudo bash deploy.sh uninstall"
     echo ""
     echo "  生成的 YAML 文件保存在: ${APP_DIR}/downloads/"
-    echo "  下载链接格式: http://<服务器IP>:${APP_PORT}/files/00001.yaml"
+    echo "  下载链接格式: http://<服务器IP>:${APP_PORT}/d/<随机token>"
     echo "  可直接在 Mihomo Party 中作为订阅链接导入"
     echo ""
     echo "  如需使用域名 + HTTPS, 建议配置 Nginx 反向代理"
