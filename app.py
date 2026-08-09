@@ -17,6 +17,9 @@ from flask import Flask, render_template, request, jsonify, Response, send_from_
 
 app = Flask(__name__)
 
+# Application version (sync with deploy.sh VERSION)
+APP_VERSION = "v1.4.0"
+
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
@@ -355,6 +358,12 @@ def resolve_token(token):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/version")
+def version():
+    """Return the current application version."""
+    return jsonify({"version": APP_VERSION})
 
 
 @app.route("/api/convert", methods=["POST"])

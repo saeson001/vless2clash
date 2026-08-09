@@ -41,6 +41,18 @@ header h1 {
     margin-top: 8px;
 }
 
+.version-badge {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 3px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    letter-spacing: 0.3px;
+}
+
 /* ===== Card ===== */
 .card {
     background: #fff;

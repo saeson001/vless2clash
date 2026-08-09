@@ -1,5 +1,16 @@
 // ===== UI Toggle Functions =====
 
+// Fetch and display the current version on page load
+(function loadVersion() {
+    fetch('/api/version')
+        .then(r => r.json())
+        .then(data => {
+            const badge = document.getElementById('version-badge');
+            if (badge && data.version) badge.textContent = data.version;
+        })
+        .catch(() => {});
+})();
+
 function toggleSubscription() {
     const section = document.getElementById('subscription-section');
     const arrow = document.getElementById('sub-arrow');

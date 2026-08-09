@@ -1,8 +1,10 @@
 #!/bin/bash
 # ============================================================
-# VLESS to Clash YAML 转换工具 - Debian 12 部署/更新/卸载脚本
-# 版本: v1.3.0
+# VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
+# 版本: v1.4.0
 # 作者: saeson
+# 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
+#       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
 # 用法:
 #   交互菜单: sudo bash deploy.sh
 #   直接部署: sudo bash deploy.sh install
@@ -13,7 +15,7 @@
 
 set -e
 
-VERSION="v1.3.0"
+VERSION="v1.4.0"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -21,6 +23,128 @@ APP_PORT=5000
 PYTHON_VERSION="python3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ============================================================
+# 操作系统检测
+# ============================================================
+detect_os() {
+    if [ ! -f /etc/os-release ]; then
+        echo "[错误] 无法检测操作系统（缺少 /etc/os-release）"
+        exit 1
+    fi
+    . /etc/os-release
+    OS_ID="${ID:-unknown}"
+    OS_VERSION="${VERSION_ID:-unknown}"
+    OS_PRETTY="${PRETTY_NAME:-$OS_ID $OS_VERSION}"
+    OS_FAMILY="unknown"
+    PKG_MANAGER=""
+    PKG_INSTALL=""
+    NOLOGIN_PATH=""
+
+    case "$OS_ID" in
+        debian|ubuntu|linuxmint|pop)
+            OS_FAMILY="debian"
+            PKG_MANAGER="apt-get"
+            PKG_INSTALL="apt-get install -y -qq"
+            NOLOGIN_PATH="/usr/sbin/nologin"
+            ;;
+        centos|rhel|rocky|almalinux|ol|fedora|amzn)
+            OS_FAMILY="rhel"
+            if command -v dnf &>/dev/null; then
+                PKG_MANAGER="dnf"
+                PKG_INSTALL="dnf install -y -q"
+            else
+                PKG_MANAGER="yum"
+                PKG_INSTALL="yum install -y -q"
+            fi
+            NOLOGIN_PATH="/sbin/nologin"
+            ;;
+        opensuse*|suse|sles)
+            OS_FAMILY="suse"
+            PKG_MANAGER="zypper"
+            PKG_INSTALL="zypper --non-interactive --quiet install"
+            NOLOGIN_PATH="/sbin/nologin"
+            ;;
+        arch|manjaro|endeavouros)
+            OS_FAMILY="arch"
+            PKG_MANAGER="pacman"
+            PKG_INSTALL="pacman --noconfirm --needed -S"
+            NOLOGIN_PATH="/sbin/nologin"
+            ;;
+        alpine)
+            OS_FAMILY="alpine"
+            PKG_MANAGER="apk"
+            PKG_INSTALL="apk add --quiet"
+            NOLOGIN_PATH="/sbin/nologin"
+            ;;
+        *)
+            OS_FAMILY="unknown"
+            echo "[警告] 未识别的发行版: $OS_ID ($OS_PRETTY)"
+            echo "        尝试使用 apt-get 作为默认包管理器..."
+            if command -v apt-get &>/dev/null; then
+                OS_FAMILY="debian"
+                PKG_MANAGER="apt-get"
+                PKG_INSTALL="apt-get install -y -qq"
+                NOLOGIN_PATH="/usr/sbin/nologin"
+            elif command -v dnf &>/dev/null; then
+                OS_FAMILY="rhel"
+                PKG_MANAGER="dnf"
+                PKG_INSTALL="dnf install -y -q"
+                NOLOGIN_PATH="/sbin/nologin"
+            elif command -v yum &>/dev/null; then
+                OS_FAMILY="rhel"
+                PKG_MANAGER="yum"
+                PKG_INSTALL="yum install -y -q"
+                NOLOGIN_PATH="/sbin/nologin"
+            else
+                echo "[错误] 找不到支持的包管理器 (apt/dnf/yum/zypper/pacman/apk)"
+                exit 1
+            fi
+            ;;
+    esac
+
+    echo "[信息] 检测到系统: $OS_PRETTY ($OS_FAMILY)"
+}
+
+# ============================================================
+# 安装系统依赖（跨发行版）
+# ============================================================
+install_system_deps() {
+    echo "[依赖] 使用包管理器: $PKG_MANAGER"
+
+    case "$OS_FAMILY" in
+        debian)
+            $PKG_MANAGER update -qq 2>/dev/null || true
+            $PKG_INSTALL python3 python3-venv python3-pip curl wget unzip > /dev/null 2>&1
+            ;;
+        rhel)
+            # CentOS 7 需要 EPEL 和额外包
+            if [ "$OS_ID" = "centos" ] && [[ "$OS_VERSION" == 7* ]]; then
+                $PKG_INSTALL epel-release > /dev/null 2>&1 || true
+            fi
+            $PKG_INSTALL python3 python3-pip curl wget unzip > /dev/null 2>&1
+            # RHEL 系不需要单独的 venv 包，python3 自带
+            # 但确保 venv 模块可用
+            if ! $PYTHON_VERSION -c "import venv" 2>/dev/null; then
+                $PKG_INSTALL python3-devel > /dev/null 2>&1 || true
+            fi
+            ;;
+        suse)
+            $PKG_INSTALL python3 python3-pip curl wget unzip > /dev/null 2>&1
+            ;;
+        arch)
+            $PKG_INSTALL python python-pip curl wget unzip > /dev/null 2>&1
+            PYTHON_VERSION="python"
+            ;;
+        alpine)
+            $PKG_INSTALL python3 py3-pip curl wget unzip bash > /dev/null 2>&1
+            # Alpine 需要 ensurepip 来创建 venv
+            $PKG_INSTALL py3-virtualenv > /dev/null 2>&1 || true
+            ;;
+    esac
+
+    echo "  -> 系统依赖安装完成"
+}
 
 # ============================================================
 # 工具函数
@@ -106,6 +230,8 @@ do_update() {
         exit 1
     fi
 
+    detect_os
+
     echo "[1/6] 停止旧服务..."
     systemctl stop "$APP_NAME" 2>/dev/null || true
     echo "  -> 服务已停止"
@@ -173,7 +299,7 @@ do_update() {
 do_install() {
     echo "========================================"
     echo "  VLESS to Clash YAML 部署脚本 $VERSION"
-    echo "  目标系统: Debian 12 (Bookworm)"
+    echo "  支持多 Linux 发行版"
     echo "========================================"
     echo ""
 
@@ -182,15 +308,15 @@ do_install() {
         exit 1
     fi
 
-    echo "[1/7] 更新系统并安装依赖..."
-    apt-get update -qq
-    apt-get install -y -qq python3 python3-venv python3-pip curl > /dev/null 2>&1
-    echo "  -> 系统依赖安装完成"
+    detect_os
+
+    echo "[1/7] 安装系统依赖..."
+    install_system_deps
 
     echo "[2/7] 创建运行用户..."
     if ! id "$APP_USER" &>/dev/null; then
-        useradd --system --no-create-home --shell /usr/sbin/nologin "$APP_USER"
-        echo "  -> 用户 $APP_USER 已创建"
+        useradd --system --no-create-home --shell "$NOLOGIN_PATH" "$APP_USER"
+        echo "  -> 用户 $APP_USER 已创建 (shell: $NOLOGIN_PATH)"
     else
         echo "  -> 用户 $APP_USER 已存在"
     fi
@@ -246,6 +372,7 @@ EOF
     echo ""
     echo "========================================"
     echo "  部署成功!  $VERSION"
+    echo "  系统: $OS_PRETTY"
     echo "========================================"
     echo ""
     echo "  WebUI 地址:  http://<服务器IP>:${APP_PORT}"
@@ -276,7 +403,7 @@ show_menu() {
     echo "========================================"
     echo "  VLESS to Clash YAML 转换工具"
     echo "  脚本版本: $VERSION"
-    echo "  目标系统: Debian 12 (Bookworm)"
+    echo "  支持多 Linux 发行版"
     if [ -d "$APP_DIR" ]; then
         echo "  已装版本: $INSTALLED_VER"
     else

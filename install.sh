@@ -3,6 +3,8 @@
 # VLESS to Clash YAML 转换工具 - 远程一键安装脚本
 # 作者: saeson
 # 仓库: https://github.com/saeson001/vless2clash
+# 支持: Debian 11/12/13, Ubuntu, CentOS 7/8/9, RHEL 8/9,
+#       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
 #
 # 用法 (在 VPS 上执行一行命令即可):
 #
@@ -54,32 +56,96 @@ fi
 
 # 检查操作系统
 if [ ! -f /etc/os-release ]; then
-    echo "[错误] 无法检测操作系统，仅支持 Debian/Ubuntu"
+    echo "[错误] 无法检测操作系统（缺少 /etc/os-release）"
     exit 1
 fi
 
 . /etc/os-release
-OS_ID="$ID"
-OS_VERSION="$VERSION_ID"
-echo "[信息] 检测到系统: $PRETTY_NAME"
+OS_ID="${ID:-unknown}"
+OS_VERSION="${VERSION_ID:-unknown}"
+OS_PRETTY="${PRETTY_NAME:-$OS_ID $OS_VERSION}"
+echo "[信息] 检测到系统: $OS_PRETTY"
 
-if [ "$OS_ID" != "debian" ] && [ "$OS_ID" != "ubuntu" ]; then
-    echo "[警告] 此脚本针对 Debian 12 设计，当前系统为 $OS_ID $OS_VERSION"
-    echo "        继续安装可能遇到兼容性问题"
-    read -p "是否继续? (y/N) " confirm
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-        echo "已取消"
-        exit 0
-    fi
+# 检测发行版家族
+OS_FAMILY="unknown"
+case "$OS_ID" in
+    debian|ubuntu|linuxmint|pop)
+        OS_FAMILY="debian"
+        ;;
+    centos|rhel|rocky|almalinux|ol|fedora|amzn)
+        OS_FAMILY="rhel"
+        ;;
+    opensuse*|suse|sles)
+        OS_FAMILY="suse"
+        ;;
+    arch|manjaro|endeavouros)
+        OS_FAMILY="arch"
+        ;;
+    alpine)
+        OS_FAMILY="alpine"
+        ;;
+    *)
+        # 尝试通过可用包管理器推断
+        if command -v apt-get &>/dev/null; then
+            OS_FAMILY="debian"
+        elif command -v dnf &>/dev/null; then
+            OS_FAMILY="rhel"
+        elif command -v yum &>/dev/null; then
+            OS_FAMILY="rhel"
+        elif command -v zypper &>/dev/null; then
+            OS_FAMILY="suse"
+        elif command -v pacman &>/dev/null; then
+            OS_FAMILY="arch"
+        elif command -v apk &>/dev/null; then
+            OS_FAMILY="alpine"
+        fi
+        ;;
+esac
+
+if [ "$OS_FAMILY" = "unknown" ]; then
+    echo "[错误] 不支持的发行版: $OS_ID"
+    echo "  支持的发行版: Debian, Ubuntu, CentOS, RHEL, Rocky, AlmaLinux, Fedora, openSUSE, Arch, Alpine"
+    exit 1
 fi
 
+echo "[信息] 发行版家族: $OS_FAMILY"
+
 # ============================================================
-# 安装系统依赖 (curl, wget, unzip, git)
+# 安装系统依赖 (跨发行版)
 # ============================================================
 echo ""
 echo "[1/4] 安装系统依赖..."
-apt-get update -qq 2>/dev/null || true
-apt-get install -y -qq curl wget unzip git > /dev/null 2>&1
+
+install_deps() {
+    case "$OS_FAMILY" in
+        debian)
+            apt-get update -qq 2>/dev/null || true
+            apt-get install -y -qq curl wget unzip git > /dev/null 2>&1
+            ;;
+        rhel)
+            if command -v dnf &>/dev/null; then
+                dnf install -y -q curl wget unzip git > /dev/null 2>&1
+            else
+                yum install -y -q curl wget unzip git > /dev/null 2>&1
+            fi
+            # CentOS 7 可能需要 EPEL
+            if [ "$OS_ID" = "centos" ] && [[ "$OS_VERSION" == 7* ]]; then
+                yum install -y -q epel-release > /dev/null 2>&1 || true
+            fi
+            ;;
+        suse)
+            zypper --non-interactive --quiet install curl wget unzip git > /dev/null 2>&1
+            ;;
+        arch)
+            pacman --noconfirm --needed -S curl wget unzip git > /dev/null 2>&1
+            ;;
+        alpine)
+            apk add --quiet curl wget unzip git bash > /dev/null 2>&1
+            ;;
+    esac
+}
+
+install_deps
 echo "  -> 系统依赖已就绪"
 
 # ============================================================
@@ -102,6 +168,7 @@ fi
 if [ "$ACTION" = "uninstall" ]; then
     echo ""
     echo "[2/4] 下载卸载脚本..."
+    mkdir -p "$TEMP_DIR"
     wget -q -O "${TEMP_DIR}/deploy.sh" \
         "https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_BRANCH}/deploy.sh" 2>/dev/null || \
     curl -sL -o "${TEMP_DIR}/deploy.sh" \
