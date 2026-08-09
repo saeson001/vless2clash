@@ -22,7 +22,36 @@ from flask import (
 )
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
+
+# Persistent secret key — stored in a file so all gunicorn workers share
+# the same key. Without this, each worker generates its own random key via
+# secrets.token_hex(32), and session cookies signed by one worker are
+# invalid in another, causing "未授权" errors after login.
+SECRET_KEY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "secret_key.txt")
+
+
+def _load_or_create_secret_key():
+    """Load the secret key from file, or generate and persist a new one."""
+    os.makedirs(os.path.dirname(SECRET_KEY_FILE), exist_ok=True)
+    try:
+        with open(SECRET_KEY_FILE, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+            if key and len(key) >= 32:
+                return key
+    except (FileNotFoundError, IOError):
+        pass
+    # Generate a new key and persist it
+    key = secrets.token_hex(32)
+    with open(SECRET_KEY_FILE, "w", encoding="utf-8") as f:
+        f.write(key)
+    try:
+        os.chmod(SECRET_KEY_FILE, 0o600)
+    except OSError:
+        pass
+    return key
+
+
+app.secret_key = _load_or_create_secret_key()
 
 # Session config — ensure cookies work reliably across page reloads
 app.config.update(
@@ -34,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.2"
+APP_VERSION = "v1.5.3"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")

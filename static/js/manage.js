@@ -20,8 +20,20 @@ let deleteTargetId = null;
 function showLogin() {
     document.getElementById('login-view').style.display = 'block';
     document.getElementById('dashboard-view').style.display = 'none';
+    // Reset login button state (in case it was stuck at "登录中...")
+    const btn = document.getElementById('login-btn');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
+    }
+    // Clear any previous error message
+    const errEl = document.getElementById('login-error');
+    if (errEl) errEl.style.display = 'none';
     // Auto-focus username
-    setTimeout(() => document.getElementById('login-username').focus(), 100);
+    setTimeout(() => {
+        const userInput = document.getElementById('login-username');
+        if (userInput) userInput.focus();
+    }, 100);
 }
 
 function showDashboard() {
@@ -55,7 +67,24 @@ function doLogin() {
     .then(resp => resp.json().then(data => ({ ok: resp.ok, data })))
     .then(({ ok, data }) => {
         if (ok && data.success) {
-            showDashboard();
+            // Verify the session cookie was actually set by calling /api/admin/check
+            // This catches cases where gunicorn worker mismatch invalidates the session
+            fetch('/api/admin/check', { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(checkData => {
+                    if (checkData.logged_in) {
+                        showDashboard();
+                    } else {
+                        // Session wasn't established — likely a server-side issue
+                        showLoginError('登录失败：会话未建立，请重试');
+                        btn.disabled = false;
+                        btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
+                    }
+                })
+                .catch(() => {
+                    // If check fails, still try to show dashboard (best effort)
+                    showDashboard();
+                });
         } else {
             showLoginError(data.error || '登录失败');
             btn.disabled = false;
