@@ -49,6 +49,7 @@ function doLogin() {
     fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ username, password })
     })
     .then(resp => resp.json().then(data => ({ ok: resp.ok, data })))
@@ -69,7 +70,7 @@ function doLogin() {
 }
 
 function doLogout() {
-    fetch('/api/admin/logout', { method: 'POST' })
+    fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' })
     .then(() => {
         showLogin();
         document.getElementById('login-password').value = '';
@@ -93,10 +94,15 @@ document.addEventListener('keydown', (e) => {
 // ===== Stats =====
 
 function loadStats() {
-    fetch('/api/admin/stats')
+    fetch('/api/admin/stats', { credentials: 'same-origin' })
     .then(r => r.json())
     .then(data => {
-        if (data.error) return;
+        if (data.error) {
+            if (data.error === '未授权') {
+                showLogin();
+            }
+            return;
+        }
         document.getElementById('stat-total-records').textContent = data.total_records;
         document.getElementById('stat-total-nodes').textContent = data.total_nodes;
         document.getElementById('stat-unique-ips').textContent = data.unique_ips;
@@ -125,8 +131,16 @@ function loadRecords() {
     const tbody = document.getElementById('records-tbody');
     tbody.innerHTML = '<tr><td colspan="7" class="table-empty">加载中...</td></tr>';
 
-    fetch(`/api/admin/records?page=${currentPage}&per_page=${perPage}&search=${encodeURIComponent(search)}`)
-    .then(r => r.json())
+    fetch(`/api/admin/records?page=${currentPage}&per_page=${perPage}&search=${encodeURIComponent(search)}`, {
+        credentials: 'same-origin'
+    })
+    .then(r => {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
     .then(data => {
         if (data.error) {
             tbody.innerHTML = `<tr><td colspan="7" class="table-empty error-text">${escapeHtml(data.error)}</td></tr>`;
@@ -160,8 +174,10 @@ function loadRecords() {
             </tr>
         `).join('');
     })
-    .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">加载失败</td></tr>';
+    .catch((err) => {
+        if (err.message !== '未授权') {
+            tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">加载失败</td></tr>';
+        }
     });
 }
 
@@ -181,8 +197,14 @@ function changePage(delta) {
 // ===== Record Detail =====
 
 function showDetail(id) {
-    fetch(`/api/admin/records/${id}`)
-    .then(r => r.json())
+    fetch(`/api/admin/records/${id}`, { credentials: 'same-origin' })
+    .then(r => {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
     .then(data => {
         if (data.error) {
             alert(data.error);
@@ -193,12 +215,27 @@ function showDetail(id) {
         document.getElementById('detail-ip').textContent = data.client_ip;
         document.getElementById('detail-nodes').textContent = data.node_count + ' 个';
         document.getElementById('detail-token').textContent = data.token;
+
+        // Download link
+        const linkEl = document.getElementById('detail-download-link');
+        if (data.download_url) {
+            linkEl.href = data.download_url;
+            linkEl.textContent = data.download_url;
+        } else {
+            linkEl.href = '#';
+            linkEl.textContent = '(无)';
+        }
+
         document.getElementById('detail-subscriptions').textContent = data.subscription_urls || '(无)';
         document.getElementById('detail-original').textContent = data.original_links || '(无)';
         document.getElementById('detail-yaml').textContent = data.yaml_content || '(无)';
         document.getElementById('detail-modal').style.display = 'flex';
     })
-    .catch(() => alert('加载详情失败'));
+    .catch((err) => {
+        if (err.message !== '未授权') {
+            alert('加载详情失败');
+        }
+    });
 }
 
 function closeDetailModal() {
@@ -224,8 +261,17 @@ function confirmDelete() {
     btn.disabled = true;
     btn.textContent = '删除中...';
 
-    fetch(`/api/admin/records/${deleteTargetId}`, { method: 'DELETE' })
-    .then(r => r.json())
+    fetch(`/api/admin/records/${deleteTargetId}`, {
+        method: 'DELETE',
+        credentials: 'same-origin'
+    })
+    .then(r => {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
     .then(data => {
         if (data.success) {
             closeDeleteModal();
@@ -235,7 +281,11 @@ function confirmDelete() {
             alert(data.error || '删除失败');
         }
     })
-    .catch(() => alert('删除失败'))
+    .catch((err) => {
+        if (err.message !== '未授权') {
+            alert('删除失败');
+        }
+    })
     .finally(() => {
         btn.disabled = false;
         btn.textContent = '确认删除';
@@ -279,9 +329,16 @@ function submitChangePassword() {
     fetch('/api/admin/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
     })
-    .then(r => r.json())
+    .then(r => {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
     .then(data => {
         if (data.success) {
             closePasswordModal();
@@ -291,7 +348,11 @@ function submitChangePassword() {
             showPasswordError(data.error || '修改失败');
         }
     })
-    .catch(() => showPasswordError('网络错误'));
+    .catch((err) => {
+        if (err.message !== '未授权') {
+            showPasswordError('网络错误');
+        }
+    });
 }
 
 function showPasswordError(msg) {

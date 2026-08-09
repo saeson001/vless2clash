@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.5.1
+# 版本: v1.5.2
 # 作者: saeson
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
 #       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
@@ -17,7 +17,7 @@
 
 set -e
 
-VERSION="v1.5.1"
+VERSION="v1.5.2"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -475,7 +475,7 @@ Type=simple
 User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
-ExecStart=${APP_DIR}/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:${APP_PORT} --timeout 30 app:app
+ExecStart=${APP_DIR}/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:${APP_PORT} --timeout 30 --forwarded-allow-ips='*' --proxy-protocol-allow-ips='*' app:app
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

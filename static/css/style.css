@@ -925,6 +925,17 @@ textarea:focus {
     word-break: break-all;
 }
 
+.detail-link {
+    color: #4c6ef5;
+    text-decoration: none;
+    font-size: 13px;
+    word-break: break-all;
+}
+
+.detail-link:hover {
+    text-decoration: underline;
+}
+
 .delete-warning {
     color: #ff4d4f;
     font-size: 13px;

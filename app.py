@@ -24,8 +24,17 @@ from flask import (
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
+# Session config — ensure cookies work reliably across page reloads
+app.config.update(
+    SESSION_COOKIE_NAME="vless2clash_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_PATH="/",
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+)
+
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.1"
+APP_VERSION = "v1.5.2"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -735,6 +744,8 @@ def admin_login():
     if verify_admin(username, password):
         session["admin_user"] = username
         session.permanent = True
+        # Force session save by touching it
+        session.modified = True
         return jsonify({"success": True, "message": "登录成功"})
     else:
         return jsonify({"error": "用户名或密码错误"}), 401
@@ -846,6 +857,9 @@ def admin_record_detail(record_id):
     if not row:
         return jsonify({"error": "记录不存在"}), 404
 
+    # Build download URL for the detail view
+    download_url = f"{request.host_url.rstrip('/')}/d/{row['token']}"
+
     return jsonify({
         "id": row["id"],
         "created_at": row["created_at"],
@@ -856,6 +870,7 @@ def admin_record_detail(record_id):
         "token": row["token"],
         "filename": row["filename"],
         "node_count": row["node_count"],
+        "download_url": download_url,
     })
 
 
