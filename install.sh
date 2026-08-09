@@ -185,12 +185,9 @@ done
 echo ""
 echo "[4/4] 执行部署脚本 ($ACTION)..."
 
-# 复制 deploy.sh 到解压目录并赋予执行权限
-cp "$EXTRACTED_DIR/deploy.sh" "$TEMP_DIR/deploy.sh"
-chmod +x "$TEMP_DIR/deploy.sh"
-
-# 执行对应的动作
-bash "$TEMP_DIR/deploy.sh" "$ACTION"
+# 直接在解压目录中执行 deploy.sh（SCRIPT_DIR 需指向应用文件所在目录）
+chmod +x "$EXTRACTED_DIR/deploy.sh"
+bash "$EXTRACTED_DIR/deploy.sh" "$ACTION"
 
 # 清理临时文件
 rm -rf "$TEMP_DIR"
