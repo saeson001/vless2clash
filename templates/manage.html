@@ -157,7 +157,12 @@
                     </div>
                     <div class="detail-row">
                         <label>下载链接</label>
-                        <a id="detail-download-link" href="#" target="_blank" class="detail-link"></a>
+                        <div class="detail-link-with-copy">
+                            <a id="detail-download-link" href="#" target="_blank" class="detail-link"></a>
+                            <button class="btn btn-small btn-copy" id="copy-download-btn" onclick="copyDownloadLink()">
+                                <span class="btn-icon">📋</span> 复制
+                            </button>
+                        </div>
                     </div>
                     <div class="detail-section">
                         <label>订阅地址</label>

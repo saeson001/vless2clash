@@ -271,6 +271,44 @@ function closeDetailModal() {
     document.getElementById('detail-modal').style.display = 'none';
 }
 
+function copyDownloadLink() {
+    const linkEl = document.getElementById('detail-download-link');
+    const url = linkEl.textContent;
+    if (!url || url === '(无)') return;
+
+    const btn = document.getElementById('copy-download-btn');
+    const originalHTML = btn.innerHTML;
+
+    // Same fallback logic as the main app's copyToClipboard
+    if (window.isSecureContext && navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => {
+            btn.innerHTML = '<span class="btn-icon">✅</span> 已复制';
+            setTimeout(() => { btn.innerHTML = originalHTML; }, 1500);
+        }).catch(() => {
+            fallbackCopy(url, btn, originalHTML);
+        });
+    } else {
+        fallbackCopy(url, btn, originalHTML);
+    }
+}
+
+function fallbackCopy(text, btn, originalHTML) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        btn.innerHTML = '<span class="btn-icon">✅</span> 已复制';
+    } catch {
+        btn.innerHTML = '<span class="btn-icon">❌</span> 失败';
+    }
+    document.body.removeChild(ta);
+    setTimeout(() => { btn.innerHTML = originalHTML; }, 1500);
+}
+
 // ===== Delete Record =====
 
 function askDelete(id) {

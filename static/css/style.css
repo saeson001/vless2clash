@@ -936,6 +936,32 @@ textarea:focus {
     text-decoration: underline;
 }
 
+.detail-link-with-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.detail-link-with-copy .detail-link {
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-copy {
+    flex-shrink: 0;
+    background: #f0f0f3;
+    color: #555;
+    border: 1px solid #d9d9e3;
+    transition: all 0.2s;
+}
+
+.btn-copy:hover {
+    background: #4c6ef5;
+    color: #fff;
+    border-color: #4c6ef5;
+}
+
 .delete-warning {
     color: #ff4d4f;
     font-size: 13px;
