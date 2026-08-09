@@ -1,21 +1,23 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.5.0
+# 版本: v1.5.1
 # 作者: saeson
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
 #       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
 # 用法:
-#   交互菜单: sudo bash deploy.sh
-#   直接部署: sudo bash deploy.sh install
-#   更新:     sudo bash deploy.sh update
-#   卸载:     sudo bash deploy.sh uninstall
-#   查看版本: bash deploy.sh version
+#   交互菜单:   sudo bash deploy.sh
+#   直接部署:   sudo bash deploy.sh install
+#   更新:       sudo bash deploy.sh update
+#   卸载:       sudo bash deploy.sh uninstall
+#   查看版本:   bash deploy.sh version
+#   查看管理员: sudo bash deploy.sh show-admin
+#   重置管理员: sudo bash deploy.sh reset-admin
 # ============================================================
 
 set -e
 
-VERSION="v1.5.0"
+VERSION="v1.5.1"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -32,7 +34,10 @@ detect_os() {
         echo "[错误] 无法检测操作系统（缺少 /etc/os-release）"
         exit 1
     fi
+    # Save our VERSION before sourcing os-release (which may define its own VERSION)
+    _SAVED_APP_VERSION="$VERSION"
     . /etc/os-release
+    VERSION="$_SAVED_APP_VERSION"
     OS_ID="${ID:-unknown}"
     OS_VERSION="${VERSION_ID:-unknown}"
     OS_PRETTY="${PRETTY_NAME:-$OS_ID $OS_VERSION}"
@@ -209,6 +214,102 @@ do_uninstall() {
 }
 
 # ============================================================
+# 查看管理员账号密码
+# ============================================================
+do_show_admin() {
+    echo "========================================"
+    echo "  管理员账号信息"
+    echo "========================================"
+    echo ""
+
+    if [ ! -d "$APP_DIR" ]; then
+        echo "  [错误] 应用未安装，请先执行安装"
+        exit 1
+    fi
+
+    if [ -f "${APP_DIR}/data/admin_config.json" ]; then
+        ADMIN_USER=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['username'])" 2>/dev/null || echo "admin")
+        ADMIN_PASS=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['password'])" 2>/dev/null || echo "admin123")
+        echo "  ╔══════════════════════════════════════╗"
+        echo "  ║        管理员账号信息                ║"
+        echo "  ╠══════════════════════════════════════╣"
+        echo "  ║  用户名: $ADMIN_USER"
+        echo "  ║  密码:   $ADMIN_PASS"
+        echo "  ╚══════════════════════════════════════╝"
+        echo ""
+        echo "  管理后台地址: http://<服务器IP>:${APP_PORT}/manage"
+        echo ""
+        echo "  ⚠️  以上为初始账号密码"
+        echo "  如果已在 Web 管理后台修改过密码，此处显示的仍是旧密码"
+        echo "  如需重置为默认密码，请执行: sudo bash deploy.sh reset-admin"
+        echo "========================================"
+    else
+        echo "  [提示] 未找到管理员配置文件"
+        echo "  默认账号: admin"
+        echo "  默认密码: admin123"
+        echo ""
+        echo "  如果服务已启动，管理员账号会在首次启动时自动创建"
+        echo "  请重启服务后再次查看: systemctl restart $APP_NAME && sudo bash deploy.sh show-admin"
+        echo "========================================"
+    fi
+}
+
+# ============================================================
+# 重置管理员账号密码
+# ============================================================
+do_reset_admin() {
+    echo "========================================"
+    echo "  重置管理员账号密码"
+    echo "========================================"
+    echo ""
+
+    if [ ! -d "$APP_DIR" ]; then
+        echo "  [错误] 应用未安装，请先执行安装"
+        exit 1
+    fi
+
+    if [ "$EUID" -ne 0 ]; then
+        echo "[错误] 请使用 root 用户或 sudo 运行此命令"
+        exit 1
+    fi
+
+    echo "[1/3] 停止服务..."
+    systemctl stop "$APP_NAME" 2>/dev/null || true
+    echo "  -> 服务已停止"
+
+    echo "[2/3] 重置管理员账号..."
+    if [ -f "$APP_DIR/venv/bin/python" ]; then
+        sudo -u "$APP_USER" "$APP_DIR/venv/bin/python" "$APP_DIR/app.py" reset-admin 2>/dev/null || \
+        "$APP_DIR/venv/bin/python" "$APP_DIR/app.py" reset-admin
+    else
+        echo "  [错误] 找不到 Python 虚拟环境"
+        exit 1
+    fi
+    echo "  -> 管理员账号已重置"
+
+    echo "[3/3] 启动服务..."
+    systemctl start "$APP_NAME"
+    sleep 2
+    echo "  -> 服务已启动"
+
+    echo ""
+    echo "========================================"
+    echo "  重置完成!"
+    echo "========================================"
+    echo ""
+    echo "  ╔══════════════════════════════════════╗"
+    echo "  ║        管理员账号信息                ║"
+    echo "  ╠══════════════════════════════════════╣"
+    echo "  ║  用户名: admin"
+    echo "  ║  密码:   admin123"
+    echo "  ╚══════════════════════════════════════╝"
+    echo ""
+    echo "  管理后台地址: http://<服务器IP>:${APP_PORT}/manage"
+    echo "  ⚠️  请登录后及时修改密码！"
+    echo "========================================"
+}
+
+# ============================================================
 # 更新函数
 # ============================================================
 do_update() {
@@ -251,7 +352,7 @@ do_update() {
     fi
 
     echo "[3/6] 更新应用文件..."
-    cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$APP_DIR/"
+    cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$SCRIPT_DIR"/deploy.sh "$APP_DIR/"
     mkdir -p "$APP_DIR/downloads" "$APP_DIR/data"
     # Preserve existing database and admin config (do not overwrite)
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -296,6 +397,28 @@ do_update() {
     echo "  如需回滚，可从备份目录恢复:"
     echo "    cp -r $BACKUP_DIR/* ${APP_DIR}/downloads/"
     echo "    systemctl restart $APP_NAME"
+    echo ""
+
+    # Display admin credentials
+    echo "  ────────────────────────────────────────"
+    echo "  管理后台:  http://<服务器IP>:${APP_PORT}/manage"
+    if [ -f "${APP_DIR}/data/admin_config.json" ]; then
+        ADMIN_USER=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['username'])" 2>/dev/null || echo "admin")
+        ADMIN_PASS=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['password'])" 2>/dev/null || echo "admin123")
+        echo "  ╔══════════════════════════════════════╗"
+        echo "  ║        管理员账号信息                ║"
+        echo "  ╠══════════════════════════════════════╣"
+        echo "  ║  用户名: $ADMIN_USER"
+        echo "  ║  密码:   $ADMIN_PASS"
+        echo "  ╚══════════════════════════════════════╝"
+        echo ""
+        echo "  ⚠️  以上为初始账号密码，如已在后台修改过请使用新密码"
+        echo "  重置密码: sudo bash deploy.sh reset-admin"
+    else
+        echo "  默认账号: admin / admin123"
+        echo "  查看密码: sudo bash deploy.sh show-admin"
+    fi
+    echo "  ────────────────────────────────────────"
     echo "========================================"
 }
 
@@ -329,7 +452,7 @@ do_install() {
 
     echo "[3/7] 部署应用文件..."
     mkdir -p "$APP_DIR"
-    cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$APP_DIR/"
+    cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$SCRIPT_DIR"/deploy.sh "$APP_DIR/"
     mkdir -p "$APP_DIR/downloads" "$APP_DIR/data"
     echo "$VERSION" > "${APP_DIR}/VERSION"
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -386,8 +509,8 @@ EOF
     echo ""
     echo "  管理后台:    http://<服务器IP>:${APP_PORT}/manage"
     echo "  ────────────────────────────────────────"
-    echo "  ⚠️  首次安装会自动生成管理员密码"
-    echo "  请查看下方密码信息，登录后请立即修改！"
+    echo "  ⚠️  默认管理员账号密码如下"
+    echo "  登录后请立即修改密码！"
     echo "  ────────────────────────────────────────"
 
     # Display admin credentials if available
@@ -395,31 +518,33 @@ EOF
     if [ -f "${APP_DIR}/data/admin_config.json" ]; then
         echo ""
         echo "  ╔══════════════════════════════════════╗"
-        echo "  ║        管理员初始账号信息             ║"
+        echo "  ║        管理员账号信息                ║"
         echo "  ╠══════════════════════════════════════╣"
-        ADMIN_USER=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['username'])" 2>/dev/null || cat "${APP_DIR}/data/admin_config.json" | grep -o '"username":[^,}]*' | cut -d'"' -f4)
-        ADMIN_PASS=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['password'])" 2>/dev/null || cat "${APP_DIR}/data/admin_config.json" | grep -o '"password":[^,}]*' | cut -d'"' -f4)
+        ADMIN_USER=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['username'])" 2>/dev/null || echo "admin")
+        ADMIN_PASS=$(python3 -c "import json; print(json.load(open('${APP_DIR}/data/admin_config.json'))['password'])" 2>/dev/null || echo "admin123")
         echo "  ║  用户名: $ADMIN_USER"
         echo "  ║  密码:   $ADMIN_PASS"
         echo "  ╚══════════════════════════════════════╝"
         echo ""
         echo "  ⚠️  请妥善保存！登录后建议立即修改密码。"
-        echo "  密码文件位置: ${APP_DIR}/data/admin_config.json"
-        echo "  （修改密码后可安全删除此文件）"
     else
         echo ""
-        echo "  [提示] 管理员账号将在首次启动时自动生成"
-        echo "  请运行: cat ${APP_DIR}/data/admin_config.json"
+        echo "  默认账号: admin"
+        echo "  默认密码: admin123"
+        echo ""
+        echo "  查看密码: sudo bash deploy.sh show-admin"
     fi
 
     echo ""
     echo "  常用命令:"
-    echo "    查看状态:  systemctl status ${APP_NAME}"
-    echo "    重启服务:  systemctl restart ${APP_NAME}"
-    echo "    停止服务:  systemctl stop ${APP_NAME}"
-    echo "    查看日志:  journalctl -u ${APP_NAME} -f"
-    echo "    更新服务:  sudo bash deploy.sh update"
-    echo "    卸载服务:  sudo bash deploy.sh uninstall"
+    echo "    查看状态:    systemctl status ${APP_NAME}"
+    echo "    重启服务:    systemctl restart ${APP_NAME}"
+    echo "    停止服务:    systemctl stop ${APP_NAME}"
+    echo "    查看日志:    journalctl -u ${APP_NAME} -f"
+    echo "    更新服务:    sudo bash ${APP_DIR}/deploy.sh update"
+    echo "    卸载服务:    sudo bash ${APP_DIR}/deploy.sh uninstall"
+    echo "    查看管理员:  sudo bash ${APP_DIR}/deploy.sh show-admin"
+    echo "    重置管理员:  sudo bash ${APP_DIR}/deploy.sh reset-admin"
     echo ""
     echo "  生成的 YAML 文件保存在: ${APP_DIR}/downloads/"
     echo "  转换记录数据库:         ${APP_DIR}/data/records.db"
@@ -451,9 +576,11 @@ show_menu() {
     echo "  2) 更新 (覆盖升级，保留 YAML 文件)"
     echo "  3) 卸载 (完全清除)"
     echo "  4) 查看版本"
+    echo "  5) 查看管理员账号"
+    echo "  6) 重置管理员密码"
     echo "  0) 退出"
     echo ""
-    read -p "请选择 [0-4]: " choice
+    read -p "请选择 [0-6]: " choice
 
     case "$choice" in
         1)
@@ -477,6 +604,14 @@ show_menu() {
                 echo "安装状态: 未安装"
             fi
             echo ""
+            ;;
+        5)
+            echo ""
+            do_show_admin
+            ;;
+        6)
+            echo ""
+            do_reset_admin
             ;;
         0)
             echo "已退出"
@@ -510,11 +645,17 @@ case "$1" in
             echo "安装状态: 未安装"
         fi
         ;;
+    show-admin)
+        do_show_admin
+        ;;
+    reset-admin)
+        do_reset_admin
+        ;;
     "")
         show_menu
         ;;
     *)
-        echo "用法: $0 {install|update|uninstall|version}"
+        echo "用法: $0 {install|update|uninstall|version|show-admin|reset-admin}"
         echo "  或直接运行 $0 进入交互菜单"
         exit 1
         ;;

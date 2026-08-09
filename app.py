@@ -25,7 +25,7 @@ app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.0"
+APP_VERSION = "v1.5.1"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -86,32 +86,32 @@ def init_db():
 def init_admin():
     """Initialize default admin account if none exists.
 
-    On first run, creates admin user with a random password.
+    Default credentials: admin / admin123
     The password is written to admin_config.json for the deploy script to display.
     """
+    DEFAULT_USERNAME = "admin"
+    DEFAULT_PASSWORD = "admin123"
+
     conn = get_db()
     cursor = conn.execute("SELECT COUNT(*) as cnt FROM admin_users")
     count = cursor.fetchone()["cnt"]
 
     if count == 0:
-        # Generate random password
-        alphabet = string.ascii_letters + string.digits
-        raw_password = "".join(secrets.choice(alphabet) for _ in range(16))
         salt = secrets.token_hex(16)
-        password_hash = hashlib.sha256((salt + raw_password).encode()).hexdigest()
+        password_hash = hashlib.sha256((salt + DEFAULT_PASSWORD).encode()).hexdigest()
         now = datetime.datetime.now().isoformat()
 
         conn.execute(
             "INSERT INTO admin_users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
-            ("admin", password_hash, salt, now)
+            (DEFAULT_USERNAME, password_hash, salt, now)
         )
         conn.commit()
 
-        # Save plaintext to config file (one-time, for display during install)
+        # Save plaintext to config file (for display during install)
         config = {
-            "username": "admin",
-            "password": raw_password,
-            "note": "Please change this password after first login. Delete this file after recording."
+            "username": DEFAULT_USERNAME,
+            "password": DEFAULT_PASSWORD,
+            "note": "Default credentials. Please change this password after first login."
         }
         with open(ADMIN_CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
@@ -943,5 +943,42 @@ def admin_change_password():
         return jsonify({"error": message}), 400
 
 
+def reset_admin():
+    """Reset admin account to default credentials (admin / admin123).
+
+    Deletes all existing admin users and recreates the default one.
+    Also rewrites admin_config.json with the default credentials.
+    """
+    DEFAULT_USERNAME = "admin"
+    DEFAULT_PASSWORD = "admin123"
+
+    conn = get_db()
+    conn.execute("DELETE FROM admin_users")
+    salt = secrets.token_hex(16)
+    password_hash = hashlib.sha256((salt + DEFAULT_PASSWORD).encode()).hexdigest()
+    now = datetime.datetime.now().isoformat()
+    conn.execute(
+        "INSERT INTO admin_users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
+        (DEFAULT_USERNAME, password_hash, salt, now)
+    )
+    conn.commit()
+    conn.close()
+
+    config = {
+        "username": DEFAULT_USERNAME,
+        "password": DEFAULT_PASSWORD,
+        "note": "Default credentials. Please change this password after first login."
+    }
+    with open(ADMIN_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+    os.chmod(ADMIN_CONFIG_FILE, 0o600)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "reset-admin":
+        reset_admin()
+        print("Admin credentials reset to: admin / admin123")
+        print(f"Config file: {ADMIN_CONFIG_FILE}")
+    else:
+        app.run(host="0.0.0.0", port=5000, debug=False)
