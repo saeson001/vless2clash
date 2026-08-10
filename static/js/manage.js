@@ -313,6 +313,7 @@ function loadRecords() {
                 '<td' + updateCountClass + '>' + r.update_count + '</td>' +
                 '<td class="cell-actions">' +
                     '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
+                    '<button class="btn btn-small" onclick="copyRecordLink(\'' + escapeAttr(r.token) + '\', this)">复制链接</button>' +
                     '<button class="btn btn-small btn-danger" onclick="askDelete(' + r.id + ')">删除</button>' +
                 '</td>' +
             '</tr>';
@@ -440,6 +441,23 @@ function fallbackCopy(text, btn, originalHTML) {
     }
     document.body.removeChild(ta);
     setTimeout(function() { btn.innerHTML = originalHTML; }, 1500);
+}
+
+// Copy download link from records table (by token)
+function copyRecordLink(token, btn) {
+    var url = window.location.origin + '/d/' + token;
+    var originalHTML = btn.innerHTML;
+
+    if (window.isSecureContext && navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(function() {
+            btn.innerHTML = '✅ 已复制';
+            setTimeout(function() { btn.innerHTML = originalHTML; }, 1500);
+        }).catch(function() {
+            fallbackCopy(url, btn, originalHTML);
+        });
+    } else {
+        fallbackCopy(url, btn, originalHTML);
+    }
 }
 
 // ===== Delete Record =====
@@ -603,6 +621,10 @@ function escapeHtml(text) {
     var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    return text.replace(/'/g, "\\'");
 }
 
 // Close modals on Escape
