@@ -1128,3 +1128,37 @@ textarea:focus {
     min-width: 140px;
     text-align: right;
 }
+
+/* ===== Config Item Full Width ===== */
+
+.config-item-full {
+    grid-column: 1 / -1;
+}
+
+/* ===== Edit Modal ===== */
+
+.edit-hint {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #e6f7ff;
+    border: 1px solid #91d5ff;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #1890ff;
+    line-height: 1.5;
+}
+
+#edit-links,
+#edit-subscriptions {
+    min-height: 100px;
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    font-size: 12px;
+}
+
+#edit-subscriptions {
+    min-height: 60px;
+}
+
+.modal-body .form-group {
+    margin-bottom: 14px;
+}

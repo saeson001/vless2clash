@@ -39,11 +39,12 @@ function toggleConfig() {
 
 function convert() {
     const links = document.getElementById('vless-input').value.trim();
-    const subscriptions = document.getElementById('subscription-input').value.trim();
+    const subscriptions = document.getElementById('subscription-input') ? document.getElementById('subscription-input').value.trim() : '';
     const config = getConfig();
+    const configName = document.getElementById('cfg-name') ? document.getElementById('cfg-name').value.trim() : '';
 
     if (!links && !subscriptions) {
-        showStatus('请输入 VLESS 链接或订阅地址', 'error');
+        showStatus('请输入代理链接或订阅地址', 'error');
         return;
     }
 
@@ -53,7 +54,7 @@ function convert() {
     fetch('/api/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ links, subscriptions, config })
+        body: JSON.stringify({ links, subscriptions, config, config_name: configName })
     })
     .then(resp => {
         if (!resp.ok) {
@@ -96,7 +97,7 @@ function showResult(data) {
 
     if (data.download_url && data.token) {
         dlSection.style.display = 'block';
-        fileBadge.textContent = data.token;
+        fileBadge.textContent = data.config_name || data.token;
 
         // Build full URL for display
         const fullUrl = window.location.origin + data.download_url;

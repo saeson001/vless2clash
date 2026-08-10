@@ -106,7 +106,7 @@
                                 <th style="width:60px;">节点数量</th>
                                 <th style="width:140px;">Token</th>
                                 <th style="width:70px;">更新次数</th>
-                                <th style="width:190px;">操作</th>
+                                <th style="width:240px;">操作</th>
                             </tr>
                         </thead>
                         <tbody id="records-tbody">
@@ -199,6 +199,10 @@
                         <span id="detail-token"></span>
                     </div>
                     <div class="detail-row">
+                        <label>配置名称</label>
+                        <span id="detail-config-name"></span>
+                    </div>
+                    <div class="detail-row">
                         <label>下载链接</label>
                         <div class="detail-link-with-copy">
                             <a id="detail-download-link" href="#" target="_blank" class="detail-link"></a>
@@ -219,7 +223,7 @@
                         <pre id="detail-subscriptions" class="detail-pre"></pre>
                     </div>
                     <div class="detail-section">
-                        <label>原始 VLESS 链接</label>
+                        <label>原始代理链接</label>
                         <pre id="detail-original" class="detail-pre"></pre>
                     </div>
                     <div class="detail-section">
@@ -272,6 +276,45 @@
                         <button class="btn btn-secondary" onclick="closeDeleteModal()">取消</button>
                         <button class="btn btn-danger" id="confirm-delete-btn" onclick="confirmDelete()">确认删除</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Record Modal -->
+        <div id="edit-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closeEditModal()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>✏️ 编辑记录</h2>
+                    <button class="modal-close" onclick="closeEditModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="detail-row">
+                        <label>ID</label>
+                        <span id="edit-id"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>Token（不可更改）</label>
+                        <span id="edit-token"></span>
+                    </div>
+                    <div class="form-group">
+                        <label>配置名称（Clash 导入显示名）</label>
+                        <input type="text" id="edit-config-name" placeholder="留空则自动生成">
+                    </div>
+                    <div class="form-group">
+                        <label>代理链接（VLESS / VMess / SS / SSR / Trojan）</label>
+                        <textarea id="edit-links" rows="8" placeholder="每行一个代理链接"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>订阅地址（可选）</label>
+                        <textarea id="edit-subscriptions" rows="3" placeholder="每行一个订阅地址"></textarea>
+                    </div>
+                    <div id="edit-error" class="login-error" style="display:none;"></div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
+                        <button class="btn btn-primary" id="submit-edit-btn" onclick="submitEdit()">保存更新</button>
+                    </div>
+                    <p class="edit-hint">💡 更新后 Token 和下载链接保持不变，Clash 刷新订阅即可获取新配置</p>
                 </div>
             </div>
         </div>

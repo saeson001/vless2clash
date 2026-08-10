@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.6"
+APP_VERSION = "v1.6.0"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -104,9 +104,17 @@ def init_db():
             client_ip TEXT NOT NULL,
             token TEXT NOT NULL UNIQUE,
             filename TEXT NOT NULL,
-            node_count INTEGER DEFAULT 0
+            node_count INTEGER DEFAULT 0,
+            config_name TEXT DEFAULT ''
         )
     """)
+    # Migration: add config_name column for existing databases
+    try:
+        conn.execute("SELECT config_name FROM conversion_records LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE conversion_records ADD COLUMN config_name TEXT DEFAULT ''")
+        conn.commit()
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,13 +210,13 @@ def change_admin_password(username, old_password, new_password):
     return True, "密码修改成功"
 
 
-def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count):
+def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name=""):
     """Insert a conversion record into the database."""
     conn = get_db()
     conn.execute(
         """INSERT INTO conversion_records
-           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             datetime.datetime.now().isoformat(),
             original_links,
@@ -217,7 +225,8 @@ def record_conversion(original_links, subscription_urls, yaml_content, client_ip
             client_ip,
             token,
             filename,
-            node_count
+            node_count,
+            config_name
         )
     )
     conn.commit()
@@ -398,6 +407,323 @@ def parse_vless(vless_url):
     return proxy
 
 
+def parse_vmess(vmess_url):
+    """Parse a VMess URL (base64-encoded JSON) into a proxy config dict."""
+    vmess_url = vmess_url.strip()
+    if not vmess_url.lower().startswith("vmess://"):
+        return None
+
+    try:
+        b64_str = vmess_url[8:]
+        # Add padding if needed
+        b64_str += "=" * (4 - len(b64_str) % 4) if len(b64_str) % 4 else ""
+        decoded = base64.b64decode(b64_str).decode("utf-8")
+        cfg = json.loads(decoded)
+    except Exception:
+        return None
+
+    name = cfg.get("ps", "") or "未命名节点"
+    server = cfg.get("add", "")
+    port = int(cfg.get("port", 443))
+    uuid = cfg.get("id", "")
+    if not server or not uuid:
+        return None
+
+    network = cfg.get("net", "tcp").lower()
+    tls_val = cfg.get("tls", "").lower()
+    tls = tls_val in ("tls", "1", "true")
+
+    proxy = {
+        "name": name,
+        "type": "vmess",
+        "server": server,
+        "port": port,
+        "uuid": uuid,
+        "alterId": int(cfg.get("aid", 0)),
+        "network": network,
+        "tls": tls,
+        "udp": True,
+    }
+
+    if "scy" in cfg and cfg["scy"]:
+        proxy["cipher"] = cfg["scy"]
+
+    if tls:
+        sni = cfg.get("sni", "")
+        if sni:
+            proxy["servername"] = sni
+        if "alpn" in cfg and cfg["alpn"]:
+            proxy["alpn"] = cfg["alpn"].split(",")
+        if cfg.get("verify_cert", True) is False or cfg.get("allowInsecure") in (1, "1", True):
+            proxy["skip-cert-verify"] = True
+
+    if network == "ws":
+        ws_opts = {"path": cfg.get("path", "/")}
+        if cfg.get("host"):
+            ws_opts["headers"] = {"Host": cfg["host"]}
+        proxy["ws-opts"] = ws_opts
+
+    if network == "grpc":
+        proxy["grpc-opts"] = {"grpc-service-name": cfg.get("path", "")}
+
+    if network == "h2":
+        h2_opts = {"path": cfg.get("path", "/")}
+        if cfg.get("host"):
+            h2_opts["host"] = [cfg["host"]]
+        proxy["h2-opts"] = h2_opts
+
+    return proxy
+
+
+def parse_ss(ss_url):
+    """Parse a Shadowsocks URL into a proxy config dict.
+
+    Supports both SIP002 and legacy formats.
+    """
+    ss_url = ss_url.strip()
+    if not ss_url.lower().startswith("ss://"):
+        return None
+
+    rest = ss_url[5:]
+
+    # Extract fragment (name)
+    name = "未命名节点"
+    if "#" in rest:
+        rest, name_encoded = rest.rsplit("#", 1)
+        name = unquote(name_encoded).strip() or "未命名节点"
+
+    # SIP002 format: base64url(method:password)@server:port/?plugin=...
+    if "@" in rest:
+        userinfo, server_part = rest.rsplit("@", 1)
+        try:
+            # base64url decode
+            userinfo += "=" * (4 - len(userinfo) % 4) if len(userinfo) % 4 else ""
+            decoded = base64.urlsafe_b64decode(userinfo).decode("utf-8")
+        except Exception:
+            try:
+                decoded = base64.b64decode(userinfo).decode("utf-8")
+            except Exception:
+                # Maybe plaintext method:password
+                decoded = userinfo
+
+        if ":" not in decoded:
+            return None
+        method, password = decoded.split(":", 1)
+
+        # Parse server:port (strip query string)
+        if "?" in server_part:
+            server_part = server_part.split("?", 1)[0]
+        if "/" in server_part:
+            server_part = server_part.split("/", 1)[0]
+    else:
+        # Legacy format: ss://base64(method:password@server:port)
+        try:
+            b64_str = rest
+            b64_str += "=" * (4 - len(b64_str) % 4) if len(b64_str) % 4 else ""
+            decoded = base64.b64decode(b64_str).decode("utf-8")
+        except Exception:
+            return None
+        if "@" not in decoded or ":" not in decoded:
+            return None
+        userinfo, server_part = decoded.rsplit("@", 1)
+        method, password = userinfo.split(":", 1)
+
+    # Parse server:port
+    if server_port_parse := _parse_server_port(server_part):
+        server, port = server_port_parse
+    else:
+        return None
+
+    return {
+        "name": name,
+        "type": "ss",
+        "server": server,
+        "port": port,
+        "cipher": method,
+        "password": password,
+        "udp": True,
+    }
+
+
+def parse_ssr(ssr_url):
+    """Parse an SSR URL into a proxy config dict."""
+    ssr_url = ssr_url.strip()
+    if not ssr_url.lower().startswith("ssr://"):
+        return None
+
+    try:
+        b64_str = ssr_url[6:]
+        b64_str += "=" * (4 - len(b64_str) % 4) if len(b64_str) % 4 else ""
+        decoded = base64.b64decode(b64_str).decode("utf-8")
+    except Exception:
+        return None
+
+    # Format: server:port:protocol:method:obfs:base64(password)/?params
+    if "/?" in decoded:
+        main_part, params_part = decoded.split("/?", 1)
+    else:
+        main_part = decoded
+        params_part = ""
+
+    parts = main_part.split(":")
+    if len(parts) < 6:
+        return None
+
+    server = parts[0]
+    port = int(parts[1])
+    protocol = parts[2]
+    method = parts[3]
+    obfs = parts[4]
+    password_b64 = parts[5]
+
+    try:
+        password_b64 += "=" * (4 - len(password_b64) % 4) if len(password_b64) % 4 else ""
+        password = base64.b64decode(password_b64).decode("utf-8")
+    except Exception:
+        return None
+
+    name = "未命名节点"
+    protocol_param = ""
+    obfs_param = ""
+
+    if params_part:
+        try:
+            params_b64 = params_part
+            params_b64 += "=" * (4 - len(params_b64) % 4) if len(params_b64) % 4 else ""
+            params_str = base64.b64decode(params_b64).decode("utf-8")
+        except Exception:
+            params_str = params_part
+
+        for pair in params_str.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                if k == "obfsparam":
+                    obfs_param = unquote(v)
+                elif k == "protoparam":
+                    protocol_param = unquote(v)
+                elif k == "remarks":
+                    name = unquote(v) or "未命名节点"
+
+    proxy = {
+        "name": name,
+        "type": "ssr",
+        "server": server,
+        "port": port,
+        "cipher": method,
+        "password": password,
+        "protocol": protocol,
+        "obfs": obfs,
+        "udp": True,
+    }
+    if protocol_param:
+        proxy["protocol-param"] = protocol_param
+    if obfs_param:
+        proxy["obfs-param"] = obfs_param
+
+    return proxy
+
+
+def parse_trojan(trojan_url):
+    """Parse a Trojan URL into a proxy config dict."""
+    trojan_url = trojan_url.strip()
+    if not trojan_url.lower().startswith("trojan://"):
+        return None
+
+    rest = trojan_url[9:]
+
+    # Extract fragment (name)
+    name = "未命名节点"
+    if "#" in rest:
+        rest, name_encoded = rest.rsplit("#", 1)
+        name = unquote(name_encoded).strip() or "未命名节点"
+
+    # Split query string
+    if "?" in rest:
+        main_part, query_string = rest.split("?", 1)
+    else:
+        main_part = rest
+        query_string = ""
+
+    # Parse password@server:port
+    if "@" not in main_part:
+        return None
+
+    password, server_port = main_part.rsplit("@", 1)
+    password = password.strip()
+    if not password:
+        return None
+
+    if server_port_parse := _parse_server_port(server_port):
+        server, port = server_port_parse
+    else:
+        return None
+
+    raw_params = parse_qs(query_string, keep_blank_values=True)
+    params = {k: v[0] for k, v in raw_params.items()}
+
+    proxy = {
+        "name": name,
+        "type": "trojan",
+        "server": server,
+        "port": port,
+        "password": password,
+        "sni": params.get("sni", server),
+        "udp": True,
+    }
+
+    if "allowInsecure" in params and params["allowInsecure"] in ("1", "true"):
+        proxy["skip-cert-verify"] = True
+
+    network = params.get("type", "tcp").lower()
+    if network == "ws":
+        ws_opts = {"path": params.get("path", "/")}
+        if "host" in params:
+            ws_opts["headers"] = {"Host": params["host"]}
+        proxy["ws-opts"] = ws_opts
+        proxy["network"] = "ws"
+
+    if network == "grpc":
+        proxy["grpc-opts"] = {"grpc-service-name": params.get("serviceName", "")}
+        proxy["network"] = "grpc"
+
+    return proxy
+
+
+def _parse_server_port(server_port):
+    """Parse 'server:port' or '[ipv6]:port' into (server, port). Returns None on failure."""
+    if server_port.startswith("["):
+        match = re.match(r"\[(.+)\]:(\d+)", server_port)
+        if not match:
+            return None
+        return match.group(1), int(match.group(2))
+    else:
+        if ":" not in server_port:
+            return None
+        server, port_str = server_port.rsplit(":", 1)
+        server = server.strip()
+        try:
+            return server, int(port_str)
+        except ValueError:
+            return None
+
+
+def parse_proxy(link):
+    """Generic proxy parser — dispatches to the correct parser based on protocol."""
+    link = link.strip()
+    lower = link.lower()
+    if lower.startswith("vless://"):
+        return parse_vless(link)
+    elif lower.startswith("vmess://"):
+        return parse_vmess(link)
+    elif lower.startswith("ss://"):
+        return parse_ss(link)
+    elif lower.startswith("ssr://"):
+        return parse_ssr(link)
+    elif lower.startswith("trojan://"):
+        return parse_trojan(link)
+    return None
+
+
 def generate_clash_yaml(proxies, config=None):
     """Generate Clash Meta / Mihomo Party compatible YAML.
 
@@ -433,51 +759,19 @@ def generate_clash_yaml(proxies, config=None):
         lines.append(f'    type: {p["type"]}')
         lines.append(f'    server: {p["server"]}')
         lines.append(f'    port: {p["port"]}')
-        lines.append(f'    uuid: {p["uuid"]}')
-        lines.append(f'    network: {p["network"]}')
-        lines.append(f'    tls: {str(p["tls"]).lower()}')
-        lines.append(f'    udp: {str(p["udp"]).lower()}')
 
-        if "flow" in p:
-            lines.append(f'    flow: {p["flow"]}')
+        ptype = p["type"]
 
-        if "servername" in p:
-            lines.append(f'    servername: {p["servername"]}')
-
-        if "reality-opts" in p:
-            lines.append(f'    reality-opts:')
-            ro = p["reality-opts"]
-            if "public-key" in ro:
-                lines.append(f'      public-key: {ro["public-key"]}')
-            if "short-id" in ro:
-                lines.append(f'      short-id: {ro["short-id"]}')
-
-        if "client-fingerprint" in p:
-            lines.append(f'    client-fingerprint: {p["client-fingerprint"]}')
-
-        if "alpn" in p:
-            alpn_str = ", ".join(p["alpn"])
-            lines.append(f'    alpn: [{alpn_str}]')
-
-        if "ws-opts" in p:
-            lines.append(f'    ws-opts:')
-            wo = p["ws-opts"]
-            lines.append(f'      path: "{wo.get("path", "/")}"')
-            if "headers" in wo:
-                lines.append(f'      headers:')
-                for k, v in wo["headers"].items():
-                    lines.append(f'        {k}: "{v}"')
-
-        if "grpc-opts" in p:
-            lines.append(f'    grpc-opts:')
-            lines.append(f'      grpc-service-name: {p["grpc-opts"].get("grpc-service-name", "")}')
-
-        if "h2-opts" in p:
-            lines.append(f'    h2-opts:')
-            ho = p["h2-opts"]
-            lines.append(f'      path: "{ho.get("path", "/")}"')
-            if "host" in ho:
-                lines.append(f'      host: [{ho["host"]}]')
+        if ptype == "vless":
+            _emit_vless(lines, p)
+        elif ptype == "vmess":
+            _emit_vmess(lines, p)
+        elif ptype == "ss":
+            _emit_ss(lines, p)
+        elif ptype == "ssr":
+            _emit_ssr(lines, p)
+        elif ptype == "trojan":
+            _emit_trojan(lines, p)
 
     lines.append("")
 
@@ -498,6 +792,111 @@ def generate_clash_yaml(proxies, config=None):
     return "\n".join(lines) + "\n"
 
 
+# ---------------------------------------------------------------------------
+# YAML emitters per proxy type
+# ---------------------------------------------------------------------------
+
+def _emit_vless(lines, p):
+    """Emit VLESS-specific YAML fields."""
+    lines.append(f'    uuid: {p["uuid"]}')
+    lines.append(f'    network: {p["network"]}')
+    lines.append(f'    tls: {str(p["tls"]).lower()}')
+    lines.append(f'    udp: {str(p["udp"]).lower()}')
+
+    if "flow" in p:
+        lines.append(f'    flow: {p["flow"]}')
+    if "servername" in p:
+        lines.append(f'    servername: {p["servername"]}')
+    if "reality-opts" in p:
+        lines.append(f'    reality-opts:')
+        ro = p["reality-opts"]
+        if "public-key" in ro:
+            lines.append(f'      public-key: {ro["public-key"]}')
+        if "short-id" in ro:
+            lines.append(f'      short-id: {ro["short-id"]}')
+    if "client-fingerprint" in p:
+        lines.append(f'    client-fingerprint: {p["client-fingerprint"]}')
+    if "alpn" in p:
+        alpn_str = ", ".join(p["alpn"])
+        lines.append(f'    alpn: [{alpn_str}]')
+    _emit_network_opts(lines, p)
+
+
+def _emit_vmess(lines, p):
+    """Emit VMess-specific YAML fields."""
+    lines.append(f'    uuid: {p["uuid"]}')
+    lines.append(f'    alterId: {p.get("alterId", 0)}')
+    lines.append(f'    network: {p["network"]}')
+    lines.append(f'    tls: {str(p["tls"]).lower()}')
+    lines.append(f'    udp: {str(p["udp"]).lower()}')
+
+    if "cipher" in p:
+        lines.append(f'    cipher: {p["cipher"]}')
+    if "servername" in p:
+        lines.append(f'    servername: {p["servername"]}')
+    if "alpn" in p:
+        alpn_str = ", ".join(p["alpn"])
+        lines.append(f'    alpn: [{alpn_str}]')
+    if "skip-cert-verify" in p:
+        lines.append(f'    skip-cert-verify: {str(p["skip-cert-verify"]).lower()}')
+    _emit_network_opts(lines, p)
+
+
+def _emit_ss(lines, p):
+    """Emit Shadowsocks-specific YAML fields."""
+    lines.append(f'    cipher: {p["cipher"]}')
+    lines.append(f'    password: "{p["password"]}"')
+    lines.append(f'    udp: {str(p.get("udp", True)).lower()}')
+
+
+def _emit_ssr(lines, p):
+    """Emit SSR-specific YAML fields."""
+    lines.append(f'    cipher: {p["cipher"]}')
+    lines.append(f'    password: "{p["password"]}"')
+    lines.append(f'    protocol: {p["protocol"]}')
+    lines.append(f'    obfs: {p["obfs"]}')
+    if "protocol-param" in p:
+        lines.append(f'    protocol-param: {p["protocol-param"]}')
+    if "obfs-param" in p:
+        lines.append(f'    obfs-param: {p["obfs-param"]}')
+    lines.append(f'    udp: {str(p.get("udp", True)).lower()}')
+
+
+def _emit_trojan(lines, p):
+    """Emit Trojan-specific YAML fields."""
+    lines.append(f'    password: "{p["password"]}"')
+    lines.append(f'    sni: {p.get("sni", "")}')
+    lines.append(f'    udp: {str(p.get("udp", True)).lower()}')
+    if "skip-cert-verify" in p:
+        lines.append(f'    skip-cert-verify: {str(p["skip-cert-verify"]).lower()}')
+    if "network" in p:
+        lines.append(f'    network: {p["network"]}')
+    _emit_network_opts(lines, p)
+
+
+def _emit_network_opts(lines, p):
+    """Emit network-specific options (ws-opts, grpc-opts, h2-opts) shared by vless/vmess/trojan."""
+    if "ws-opts" in p:
+        lines.append(f'    ws-opts:')
+        wo = p["ws-opts"]
+        lines.append(f'      path: "{wo.get("path", "/")}"')
+        if "headers" in wo:
+            lines.append(f'      headers:')
+            for k, v in wo["headers"].items():
+                lines.append(f'        {k}: "{v}"')
+
+    if "grpc-opts" in p:
+        lines.append(f'    grpc-opts:')
+        lines.append(f'      grpc-service-name: {p["grpc-opts"].get("grpc-service-name", "")}')
+
+    if "h2-opts" in p:
+        lines.append(f'    h2-opts:')
+        ho = p["h2-opts"]
+        lines.append(f'      path: "{ho.get("path", "/")}"')
+        if "host" in ho:
+            lines.append(f'      host: [{ho["host"]}]')
+
+
 def fetch_subscription(url):
     """Fetch subscription content from URL, auto-decode base64 if needed.
 
@@ -514,7 +913,7 @@ def fetch_subscription(url):
     try:
         b64_content = content.replace("\n", "").replace("\r", "").replace(" ", "")
         decoded = base64.b64decode(b64_content).decode("utf-8")
-        if "vless://" in decoded or "vmess://" in decoded or "trojan://" in decoded:
+        if any(proto in decoded for proto in ("vless://", "vmess://", "trojan://", "ss://", "ssr://")):
             content = decoded
     except Exception:
         pass
@@ -522,7 +921,8 @@ def fetch_subscription(url):
     links = []
     for line in content.splitlines():
         line = line.strip()
-        if line.lower().startswith("vless://"):
+        lower = line.lower()
+        if lower.startswith(("vless://", "vmess://", "ss://", "ssr://", "trojan://")):
             links.append(line)
 
     return links
@@ -626,6 +1026,7 @@ def convert():
     raw_links = data.get("links", "").strip()
     sub_urls = data.get("subscriptions", "").strip()
     config = data.get("config", {})
+    custom_name = data.get("config_name", "").strip()
 
     proxies = []
     errors = []
@@ -640,6 +1041,8 @@ def convert():
             seen_names[name] = 0
         proxies.append(proxy)
 
+    SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
+
     # Parse direct links
     if raw_links:
         for line in raw_links.splitlines():
@@ -649,9 +1052,9 @@ def convert():
             # Handle comma-separated links too
             for link in re.split(r"[,\s]+", line):
                 link = link.strip()
-                if not link or not link.lower().startswith("vless://"):
+                if not link or not link.lower().startswith(SUPPORTED_PREFIXES):
                     continue
-                proxy = parse_vless(link)
+                proxy = parse_proxy(link)
                 if proxy:
                     add_proxy(proxy)
                 else:
@@ -669,7 +1072,7 @@ def convert():
             try:
                 links = fetch_subscription(url)
                 for link in links:
-                    proxy = parse_vless(link)
+                    proxy = parse_proxy(link)
                     if proxy:
                         add_proxy(proxy)
                     else:
@@ -678,16 +1081,31 @@ def convert():
                 errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
 
     if not proxies:
-        error_msg = "未找到有效的 VLESS 节点"
+        error_msg = "未找到有效的代理节点"
         if errors:
             error_msg += "。错误详情: " + "; ".join(errors[:5])
         return jsonify({"error": error_msg}), 400
+
+    # Determine config_name (the name Clash shows when importing)
+    if not custom_name:
+        if len(proxies) == 1:
+            # Single link: use the node name from the link
+            config_name = proxies[0]["name"]
+        else:
+            # Multiple links: use token as fallback
+            config_name = ""
+    else:
+        config_name = custom_name
 
     yaml_content = generate_clash_yaml(proxies, config)
 
     # Save to file with obfuscated random token
     token = create_obfuscated_file(yaml_content)
     filename = f"{token}.yaml"
+
+    # If no custom name and multiple links, use token
+    if not config_name:
+        config_name = token
 
     # Record conversion in database
     client_ip = get_client_ip()
@@ -698,7 +1116,8 @@ def convert():
         client_ip=client_ip,
         token=token,
         filename=filename,
-        node_count=len(proxies)
+        node_count=len(proxies),
+        config_name=config_name
     )
 
     # Build download URL — no extension, no sequential numbering
@@ -709,6 +1128,7 @@ def convert():
         "count": len(proxies),
         "errors": errors,
         "token": token,
+        "config_name": config_name,
         "download_url": download_url,
         "proxies": [{"name": p["name"], "server": p["server"], "port": p["port"]} for p in proxies],
     })
@@ -716,11 +1136,39 @@ def convert():
 
 @app.route("/d/<token>")
 def serve_by_token(token):
-    """Serve a YAML file by its random token — URL shows no filename or extension."""
+    """Serve a YAML file by its random token — URL shows no filename or extension.
+
+    Sets Content-Disposition with the config_name so Clash shows a friendly name
+    instead of the raw token when importing the subscription.
+    """
     filename = resolve_token(token)
     if not filename:
         abort(404)
-    return send_from_directory(DOWNLOADS_DIR, filename, mimetype="text/yaml")
+
+    # Look up config_name from database for a friendly display name
+    display_name = token
+    try:
+        conn = get_db()
+        cursor = conn.execute("SELECT config_name FROM conversion_records WHERE token = ?", (token,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row["config_name"]:
+            display_name = row["config_name"]
+    except Exception:
+        pass
+
+    # URL-encode the filename for Content-Disposition (RFC 5987)
+    from urllib.parse import quote
+    encoded_name = quote(f"{display_name}.yaml")
+
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    with open(filepath, "r", encoding="utf-8") as f:
+        yaml_text = f.read()
+
+    response = Response(yaml_text, mimetype="text/yaml; charset=utf-8")
+    response.headers["Content-Disposition"] = f"attachment; filename=\"{display_name}.yaml\"; filename*=UTF-8''{encoded_name}"
+    response.headers["Subscription-Userinfo"] = "upload=0; download=0; total=0; expire=0"
+    return response
 
 
 @app.route("/files/<path:filename>")
@@ -920,6 +1368,7 @@ def admin_record_detail(record_id):
         "token": row["token"],
         "filename": row["filename"],
         "node_count": row["node_count"],
+        "config_name": row["config_name"] if "config_name" in row.keys() else "",
         "download_url": download_url,
         "ip_update_count": ip_update_count,
         "top_ips": top_ips,
@@ -937,6 +1386,138 @@ def admin_delete_record(record_id):
         return jsonify({"success": True, "message": "记录已删除"})
     else:
         return jsonify({"error": "记录不存在或删除失败"}), 404
+
+
+@app.route("/api/admin/records/<int:record_id>/edit", methods=["PUT"])
+def admin_edit_record(record_id):
+    """Edit a record's original links and regenerate YAML.
+
+    The token and filename stay the same, so the subscription URL /d/<token>
+    does not change — Clash will pull the updated config on next refresh.
+
+    Accepts JSON body:
+      - links: new raw proxy links (string)
+      - subscriptions: new subscription URLs (string, optional)
+      - config_name: new config name (string, optional)
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    raw_links = data.get("links", "").strip()
+    sub_urls = data.get("subscriptions", "").strip()
+    new_config_name = data.get("config_name", "").strip()
+
+    if not raw_links and not sub_urls:
+        return jsonify({"error": "请输入代理链接或订阅地址"}), 400
+
+    # Fetch the existing record
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM conversion_records WHERE id = ?", (record_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "记录不存在"}), 404
+
+    token = row["token"]
+    filename = row["filename"]
+
+    # Parse new links
+    proxies = []
+    errors = []
+    seen_names = {}
+
+    def add_proxy(proxy):
+        name = proxy["name"]
+        if name in seen_names:
+            seen_names[name] += 1
+            proxy["name"] = f"{name}_{seen_names[name]}"
+        else:
+            seen_names[name] = 0
+        proxies.append(proxy)
+
+    SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
+
+    if raw_links:
+        for line in raw_links.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for link in re.split(r"[,\s]+", line):
+                link = link.strip()
+                if not link or not link.lower().startswith(SUPPORTED_PREFIXES):
+                    continue
+                proxy = parse_proxy(link)
+                if proxy:
+                    add_proxy(proxy)
+                else:
+                    errors.append(f"解析失败: {link[:80]}...")
+
+    if sub_urls:
+        for url_line in sub_urls.splitlines():
+            url = url_line.strip()
+            if not url:
+                continue
+            if not url.startswith("http://") and not url.startswith("https://"):
+                errors.append(f"无效订阅地址: {url[:80]}")
+                continue
+            try:
+                links = fetch_subscription(url)
+                for link in links:
+                    proxy = parse_proxy(link)
+                    if proxy:
+                        add_proxy(proxy)
+                    else:
+                        errors.append(f"订阅节点解析失败: {link[:80]}")
+            except Exception as e:
+                errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
+
+    if not proxies:
+        error_msg = "未找到有效的代理节点"
+        if errors:
+            error_msg += "。错误详情: " + "; ".join(errors[:5])
+        conn.close()
+        return jsonify({"error": error_msg}), 400
+
+    # Determine config_name
+    if new_config_name:
+        config_name = new_config_name
+    elif row["config_name"]:
+        config_name = row["config_name"]
+    elif len(proxies) == 1:
+        config_name = proxies[0]["name"]
+    else:
+        config_name = token
+
+    # Generate new YAML (use default config)
+    yaml_content = generate_clash_yaml(proxies)
+
+    # Overwrite the YAML file on disk (same filename, same token)
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(yaml_content)
+
+    # Update database record
+    conn.execute(
+        """UPDATE conversion_records
+           SET original_links = ?, subscription_urls = ?, yaml_content = ?,
+               node_count = ?, config_name = ?
+           WHERE id = ?""",
+        (raw_links, sub_urls, yaml_content, len(proxies), config_name, record_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "记录已更新",
+        "node_count": len(proxies),
+        "errors": errors,
+        "config_name": config_name,
+    })
 
 
 @app.route("/api/admin/stats")
