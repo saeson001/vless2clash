@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.5.4"
+APP_VERSION = "v1.5.5"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -836,12 +836,14 @@ def admin_records():
     total = cursor.fetchone()["cnt"]
 
     # Get records (exclude full yaml_content for list view)
+    # Include update_count: how many total conversions from the same IP
     cursor = conn.execute(
-        f"""SELECT id, created_at, original_links, subscription_urls, client_ip,
-                  token, node_count,
-                  length(yaml_content) as yaml_size
-           FROM conversion_records {where_sql}
-           ORDER BY created_at DESC
+        f"""SELECT r.id, r.created_at, r.original_links, r.subscription_urls, r.client_ip,
+                  r.token, r.node_count,
+                  length(r.yaml_content) as yaml_size,
+                  (SELECT COUNT(*) FROM conversion_records WHERE client_ip = r.client_ip) as update_count
+           FROM conversion_records r {where_sql}
+           ORDER BY r.created_at DESC
            LIMIT ? OFFSET ?""",
         params + [per_page, offset]
     )
@@ -856,6 +858,7 @@ def admin_records():
             "token": row["token"],
             "node_count": row["node_count"],
             "yaml_size": row["yaml_size"],
+            "update_count": row["update_count"],
         })
 
     conn.close()
@@ -881,10 +884,28 @@ def admin_record_detail(record_id):
         (record_id,)
     )
     row = cursor.fetchone()
-    conn.close()
 
     if not row:
+        conn.close()
         return jsonify({"error": "记录不存在"}), 404
+
+    # Count how many times this IP has converted
+    ip_update_count = conn.execute(
+        "SELECT COUNT(*) as cnt FROM conversion_records WHERE client_ip = ?",
+        (row["client_ip"],)
+    ).fetchone()["cnt"]
+
+    # Top 10 IPs for the detail view's IP stats panel
+    ip_cursor = conn.execute(
+        """SELECT client_ip, COUNT(*) as cnt, MAX(created_at) as last_seen
+           FROM conversion_records
+           GROUP BY client_ip
+           ORDER BY cnt DESC
+           LIMIT 10"""
+    )
+    top_ips = [{"ip": r["client_ip"], "count": r["cnt"], "last_seen": r["last_seen"]} for r in ip_cursor.fetchall()]
+
+    conn.close()
 
     # Build download URL for the detail view
     download_url = f"{request.host_url.rstrip('/')}/d/{row['token']}"
@@ -900,6 +921,8 @@ def admin_record_detail(record_id):
         "filename": row["filename"],
         "node_count": row["node_count"],
         "download_url": download_url,
+        "ip_update_count": ip_update_count,
+        "top_ips": top_ips,
     })
 
 

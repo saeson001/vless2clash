@@ -1057,3 +1057,74 @@ textarea:focus {
     background: #4c6ef5;
     color: #fff;
 }
+
+/* ===== Collapsible Panels ===== */
+
+.collapsible-header {
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+    border-radius: 8px;
+    padding: 4px 8px;
+    margin: -4px -8px;
+}
+
+.collapsible-header:hover {
+    background: #f0f2f5;
+}
+
+/* ===== Update Count ===== */
+
+.update-count-high {
+    color: #ff4d4f;
+    font-weight: 700;
+}
+
+/* ===== IP Stats Panel in Modal ===== */
+
+.ip-stats-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 10px;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.ip-stats-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.ip-stats-row-active {
+    background: #e6f0ff;
+    border: 1px solid #adc6ff;
+    font-weight: 600;
+}
+
+.ip-stats-addr {
+    font-family: "SF Mono", "Fira Code", Consolas, monospace;
+    color: #333;
+    flex: 1;
+}
+
+.ip-stats-count {
+    color: #667eea;
+    font-weight: 600;
+    min-width: 50px;
+    text-align: right;
+}
+
+.ip-stats-time {
+    color: #aaa;
+    font-size: 11px;
+    min-width: 140px;
+    text-align: right;
+}

@@ -83,39 +83,7 @@
                 </div>
             </div>
 
-            <!-- Daily Breakdown -->
-            <div class="card" id="daily-card">
-                <div class="card-header">
-                    <span class="card-icon">📅</span>
-                    <h2>配置更新次数趋势 (近 7 天)</h2>
-                </div>
-                <div class="table-wrapper">
-                    <table class="records-table daily-table">
-                        <thead>
-                            <tr>
-                                <th>日期</th>
-                                <th>更新次数</th>
-                                <th>生成节点数</th>
-                                <th>标记</th>
-                            </tr>
-                        </thead>
-                        <tbody id="daily-tbody">
-                            <tr><td colspan="4" class="table-empty">加载中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <!-- Top IPs -->
-            <div class="card" id="top-ips-card" style="display:none;">
-                <div class="card-header">
-                    <span class="card-icon">📍</span>
-                    <h2>IP 排行 (Top 10)</h2>
-                </div>
-                <div id="top-ips-list" class="top-ips-list"></div>
-            </div>
-
-            <!-- Records Table -->
+            <!-- Records Table (top priority) -->
             <div class="card">
                 <div class="card-header">
                     <span class="card-icon">📋</span>
@@ -134,10 +102,10 @@
                             <tr>
                                 <th style="width:40px;">ID</th>
                                 <th style="width:160px;">时间</th>
-                                <th>原始 VLESS 链接</th>
-                                <th style="width:120px;">IP</th>
-                                <th style="width:60px;">节点</th>
+                                <th style="width:130px;">客户端IP</th>
+                                <th style="width:60px;">节点数量</th>
                                 <th style="width:140px;">Token</th>
+                                <th style="width:70px;">更新次数</th>
                                 <th style="width:120px;">操作</th>
                             </tr>
                         </thead>
@@ -151,6 +119,44 @@
                     <button class="btn btn-small" id="prev-page" onclick="changePage(-1)">上一页</button>
                     <span id="page-info" class="page-info">-</span>
                     <button class="btn btn-small" id="next-page" onclick="changePage(1)">下一页</button>
+                </div>
+            </div>
+
+            <!-- IP Ranking (collapsible, collapsed by default) -->
+            <div class="card" id="top-ips-card">
+                <div class="card-header collapsible-header" onclick="togglePanel('top-ips')" id="top-ips-header">
+                    <span class="card-icon">📍</span>
+                    <h2>转换记录排行 (Top 10)</h2>
+                    <span class="toggle-arrow" id="top-ips-arrow">▶</span>
+                </div>
+                <div class="collapsible-content" id="top-ips-content" style="display:none;">
+                    <div id="top-ips-list" class="top-ips-list"></div>
+                </div>
+            </div>
+
+            <!-- Daily Breakdown (collapsible, collapsed by default, at bottom) -->
+            <div class="card" id="daily-card">
+                <div class="card-header collapsible-header" onclick="togglePanel('daily')" id="daily-header">
+                    <span class="card-icon">📅</span>
+                    <h2>配置更新次数趋势 (近 7 天)</h2>
+                    <span class="toggle-arrow" id="daily-arrow">▶</span>
+                </div>
+                <div class="collapsible-content" id="daily-content" style="display:none;">
+                    <div class="table-wrapper">
+                        <table class="records-table daily-table">
+                            <thead>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>更新次数</th>
+                                    <th>生成节点数</th>
+                                    <th>标记</th>
+                                </tr>
+                            </thead>
+                            <tbody id="daily-tbody">
+                                <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -181,6 +187,10 @@
                         <span id="detail-ip"></span>
                     </div>
                     <div class="detail-row">
+                        <label>该IP更新次数</label>
+                        <span id="detail-ip-update-count"></span>
+                    </div>
+                    <div class="detail-row">
                         <label>节点数量</label>
                         <span id="detail-nodes"></span>
                     </div>
@@ -197,6 +207,13 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- IP Stats Panel -->
+                    <div class="detail-section" id="detail-ip-stats-section" style="display:none;">
+                        <label>此 IP 更新统计</label>
+                        <div id="detail-ip-stats" class="ip-stats-panel"></div>
+                    </div>
+
                     <div class="detail-section">
                         <label>订阅地址</label>
                         <pre id="detail-subscriptions" class="detail-pre"></pre>

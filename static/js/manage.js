@@ -5,6 +5,67 @@ let totalPages = 1;
 let perPage = 20;
 let deleteTargetId = null;
 
+// ===== Collapse State Persistence =====
+
+const COLLAPSE_STORAGE_KEY = 'vless2clash_panel_states';
+
+function getCollapseStates() {
+    try {
+        return JSON.parse(localStorage.getItem(COLLAPSE_STORAGE_KEY)) || {};
+    } catch {
+        return {};
+    }
+}
+
+function setCollapseState(panelId, collapsed) {
+    const states = getCollapseStates();
+    states[panelId] = collapsed;
+    try {
+        localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(states));
+    } catch {}
+}
+
+function togglePanel(panelId) {
+    const content = document.getElementById(panelId + '-content');
+    const arrow = document.getElementById(panelId + '-arrow');
+    if (!content || !arrow) return;
+
+    const isCollapsed = content.style.display === 'none';
+    if (isCollapsed) {
+        content.style.display = 'block';
+        arrow.textContent = '▼';
+        setCollapseState(panelId, false);
+    } else {
+        content.style.display = 'none';
+        arrow.textContent = '▶';
+        setCollapseState(panelId, true);
+    }
+}
+
+function applyStoredCollapseStates(callback) {
+    const states = getCollapseStates();
+    ['top-ips', 'daily'].forEach(function(id) {
+        const content = document.getElementById(id + '-content');
+        const arrow = document.getElementById(id + '-arrow');
+        if (!content || !arrow) return;
+
+        // Default: collapsed (display:none)
+        var collapsed = states[id];
+        if (collapsed === undefined || collapsed === null) {
+            collapsed = true; // default collapsed
+        }
+
+        if (collapsed) {
+            content.style.display = 'none';
+            arrow.textContent = '▶';
+        } else {
+            content.style.display = 'block';
+            arrow.textContent = '▼';
+        }
+    });
+    if (callback) callback();
+}
+
 // ===== Init =====
 
 (function init() {
@@ -30,7 +91,7 @@ function showLogin() {
     const errEl = document.getElementById('login-error');
     if (errEl) errEl.style.display = 'none';
     // Auto-focus username
-    setTimeout(() => {
+    setTimeout(function() {
         const userInput = document.getElementById('login-username');
         if (userInput) userInput.focus();
     }, 100);
@@ -42,6 +103,11 @@ function showDashboard() {
     loadStats();
     loadDailyStats();
     loadRecords();
+    // Apply stored collapse states after a short delay
+    // to ensure panels exist in DOM
+    setTimeout(function() {
+        applyStoredCollapseStates();
+    }, 50);
 }
 
 // ===== Login / Logout =====
@@ -63,36 +129,33 @@ function doLogin() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username: username, password: password })
     })
-    .then(resp => resp.json().then(data => ({ ok: resp.ok, data })))
-    .then(({ ok, data }) => {
-        if (ok && data.success) {
+    .then(function(resp) { return resp.json().then(function(data) { return { ok: resp.ok, data: data }; }); })
+    .then(function(result) {
+        if (result.ok && result.data.success) {
             // Verify the session cookie was actually set by calling /api/admin/check
-            // This catches cases where gunicorn worker mismatch invalidates the session
             fetch('/api/admin/check', { credentials: 'same-origin' })
-                .then(r => r.json())
-                .then(checkData => {
+                .then(function(r) { return r.json(); })
+                .then(function(checkData) {
                     if (checkData.logged_in) {
                         showDashboard();
                     } else {
-                        // Session wasn't established — likely a server-side issue
                         showLoginError('登录失败：会话未建立，请重试');
                         btn.disabled = false;
                         btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
                     }
                 })
-                .catch(() => {
-                    // If check fails, still try to show dashboard (best effort)
+                .catch(function() {
                     showDashboard();
                 });
         } else {
-            showLoginError(data.error || '登录失败');
+            showLoginError(result.data.error || '登录失败');
             btn.disabled = false;
             btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
         }
     })
-    .catch(() => {
+    .catch(function() {
         showLoginError('网络错误，请重试');
         btn.disabled = false;
         btn.innerHTML = '<span class="btn-icon">🔑</span> 登录';
@@ -101,11 +164,11 @@ function doLogin() {
 
 function doLogout() {
     fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' })
-    .then(() => {
+    .then(function() {
         showLogin();
         document.getElementById('login-password').value = '';
     })
-    .catch(() => showLogin());
+    .catch(function() { showLogin(); });
 }
 
 function showLoginError(msg) {
@@ -115,7 +178,7 @@ function showLoginError(msg) {
 }
 
 // Enter key to login
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && document.getElementById('login-view').style.display !== 'none') {
         doLogin();
     }
@@ -125,8 +188,8 @@ document.addEventListener('keydown', (e) => {
 
 function loadStats() {
     fetch('/api/admin/stats', { credentials: 'same-origin' })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         if (data.error) {
             if (data.error === '未授权') {
                 showLogin();
@@ -139,27 +202,29 @@ function loadStats() {
         document.getElementById('stat-recent-24h').textContent = data.recent_24h;
 
         // Top IPs
+        var list = document.getElementById('top-ips-list');
         if (data.top_ips && data.top_ips.length > 0) {
-            const list = document.getElementById('top-ips-list');
-            list.innerHTML = data.top_ips.map(ip => `
-                <div class="top-ip-row">
-                    <span class="top-ip-addr">${escapeHtml(ip.ip)}</span>
-                    <span class="top-ip-count">${ip.count} 次</span>
-                    <span class="top-ip-time">${formatTime(ip.last_seen)}</span>
-                </div>
-            `).join('');
+            list.innerHTML = data.top_ips.map(function(ip) {
+                return '<div class="top-ip-row">' +
+                    '<span class="top-ip-addr">' + escapeHtml(ip.ip) + '</span>' +
+                    '<span class="top-ip-count">' + ip.count + ' 次</span>' +
+                    '<span class="top-ip-time">' + formatTime(ip.last_seen) + '</span>' +
+                '</div>';
+            }).join('');
             document.getElementById('top-ips-card').style.display = 'block';
+        } else {
+            document.getElementById('top-ips-card').style.display = 'none';
         }
     })
-    .catch(() => {});
+    .catch(function() {});
 }
 
 // ===== Daily Stats =====
 
 function loadDailyStats() {
     fetch('/api/admin/daily-stats?days=7', { credentials: 'same-origin' })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         if (data.error) {
             if (data.error === '未授权') {
                 showLogin();
@@ -170,61 +235,63 @@ function loadDailyStats() {
         document.getElementById('stat-week-count').textContent = data.week_count;
 
         // Render daily breakdown table
-        const tbody = document.getElementById('daily-tbody');
+        var tbody = document.getElementById('daily-tbody');
         if (!data.daily || data.daily.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="table-empty">暂无数据</td></tr>';
             return;
         }
 
         // Find max count for visual bar
-        const maxCount = Math.max(1, ...data.daily.map(d => d.count));
+        var maxCount = Math.max.apply(null, [1].concat(data.daily.map(function(d) { return d.count; })));
 
-        tbody.innerHTML = data.daily.map(d => {
-            const barWidth = Math.round((d.count / maxCount) * 100);
-            const barColor = d.is_today ? '#4c6ef5' : '#6c757d';
-            return `
-                <tr class="${d.is_today ? 'daily-row-today' : ''}">
-                    <td>${formatDate(d.date)}</td>
-                    <td>
-                        <span class="daily-count">${d.count} 次</span>
-                        <div class="daily-bar-bg">
-                            <div class="daily-bar" style="width:${barWidth}%;background:${barColor};"></div>
-                        </div>
-                    </td>
-                    <td>${d.nodes} 个</td>
-                    <td>${d.is_today ? '<span class="badge badge-today">今天</span>' : ''}</td>
-                </tr>
-            `;
+        tbody.innerHTML = data.daily.map(function(d) {
+            var barWidth = Math.round((d.count / maxCount) * 100);
+            var barColor = d.is_today ? '#4c6ef5' : '#6c757d';
+            return '<tr class="' + (d.is_today ? 'daily-row-today' : '') + '">' +
+                '<td>' + formatDate(d.date) + '</td>' +
+                '<td>' +
+                    '<span class="daily-count">' + d.count + ' 次</span>' +
+                    '<div class="daily-bar-bg">' +
+                        '<div class="daily-bar" style="width:' + barWidth + '%;background:' + barColor + ';"></div>' +
+                    '</div>' +
+                '</td>' +
+                '<td>' + d.nodes + ' 个</td>' +
+                '<td>' + (d.is_today ? '<span class="badge badge-today">今天</span>' : '') + '</td>' +
+            '</tr>';
         }).join('');
+
+        // Re-apply collapse state after rendering
+        applyStoredCollapseStates();
     })
-    .catch(() => {});
+    .catch(function() {});
 }
 
 // ===== Records Table =====
 
 function loadRecords() {
-    const search = document.getElementById('search-input').value.trim();
-    const tbody = document.getElementById('records-tbody');
+    var search = document.getElementById('search-input').value.trim();
+    var tbody = document.getElementById('records-tbody');
     tbody.innerHTML = '<tr><td colspan="7" class="table-empty">加载中...</td></tr>';
 
-    fetch(`/api/admin/records?page=${currentPage}&per_page=${perPage}&search=${encodeURIComponent(search)}`, {
+    fetch('/api/admin/records?page=' + currentPage + '&per_page=' + perPage + '&search=' + encodeURIComponent(search), {
         credentials: 'same-origin'
     })
-    .then(r => {
+    .then(function(r) {
         if (r.status === 401) {
             showLogin();
             throw new Error('未授权');
         }
         return r.json();
     })
-    .then(data => {
+    .then(function(data) {
         if (data.error) {
-            tbody.innerHTML = `<tr><td colspan="7" class="table-empty error-text">${escapeHtml(data.error)}</td></tr>`;
+            tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">' + escapeHtml(data.error) + '</td></tr>';
             return;
         }
 
         totalPages = data.total_pages;
-        document.getElementById('page-info').textContent = `第 ${data.page} / ${totalPages} 页 (共 ${data.total} 条)`;
+        document.getElementById('page-info').textContent =
+            '第 ' + data.page + ' / ' + totalPages + ' 页 (共 ' + data.total + ' 条)';
 
         // Pagination buttons
         document.getElementById('prev-page').disabled = data.page <= 1;
@@ -235,22 +302,23 @@ function loadRecords() {
             return;
         }
 
-        tbody.innerHTML = data.records.map(r => `
-            <tr>
-                <td>${r.id}</td>
-                <td class="cell-time">${formatTime(r.created_at)}</td>
-                <td class="cell-links">${truncate(escapeHtml(r.original_links || '(订阅转换)'), 60)}</td>
-                <td class="cell-ip">${escapeHtml(r.client_ip)}</td>
-                <td>${r.node_count}</td>
-                <td class="cell-token">${escapeHtml(r.token)}</td>
-                <td class="cell-actions">
-                    <button class="btn btn-small" onclick="showDetail(${r.id})">详情</button>
-                    <button class="btn btn-small btn-danger" onclick="askDelete(${r.id})">删除</button>
-                </td>
-            </tr>
-        `).join('');
+        tbody.innerHTML = data.records.map(function(r) {
+            var updateCountClass = (r.update_count >= 5) ? ' class="update-count-high"' : '';
+            return '<tr>' +
+                '<td>' + r.id + '</td>' +
+                '<td class="cell-time">' + formatTime(r.created_at) + '</td>' +
+                '<td class="cell-ip">' + escapeHtml(r.client_ip) + '</td>' +
+                '<td>' + r.node_count + '</td>' +
+                '<td class="cell-token">' + escapeHtml(r.token) + '</td>' +
+                '<td' + updateCountClass + '>' + r.update_count + '</td>' +
+                '<td class="cell-actions">' +
+                    '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
+                    '<button class="btn btn-small btn-danger" onclick="askDelete(' + r.id + ')">删除</button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
     })
-    .catch((err) => {
+    .catch(function(err) {
         if (err.message !== '未授权') {
             tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">加载失败</td></tr>';
         }
@@ -264,7 +332,7 @@ function clearFilters() {
 }
 
 function changePage(delta) {
-    const newPage = currentPage + delta;
+    var newPage = currentPage + delta;
     if (newPage < 1 || newPage > totalPages) return;
     currentPage = newPage;
     loadRecords();
@@ -273,15 +341,15 @@ function changePage(delta) {
 // ===== Record Detail =====
 
 function showDetail(id) {
-    fetch(`/api/admin/records/${id}`, { credentials: 'same-origin' })
-    .then(r => {
+    fetch('/api/admin/records/' + id, { credentials: 'same-origin' })
+    .then(function(r) {
         if (r.status === 401) {
             showLogin();
             throw new Error('未授权');
         }
         return r.json();
     })
-    .then(data => {
+    .then(function(data) {
         if (data.error) {
             alert(data.error);
             return;
@@ -289,11 +357,12 @@ function showDetail(id) {
         document.getElementById('detail-id').textContent = data.id;
         document.getElementById('detail-time').textContent = formatTime(data.created_at);
         document.getElementById('detail-ip').textContent = data.client_ip;
+        document.getElementById('detail-ip-update-count').textContent = data.ip_update_count + ' 次';
         document.getElementById('detail-nodes').textContent = data.node_count + ' 个';
         document.getElementById('detail-token').textContent = data.token;
 
         // Download link
-        const linkEl = document.getElementById('detail-download-link');
+        var linkEl = document.getElementById('detail-download-link');
         if (data.download_url) {
             linkEl.href = data.download_url;
             linkEl.textContent = data.download_url;
@@ -302,12 +371,29 @@ function showDetail(id) {
             linkEl.textContent = '(无)';
         }
 
+        // IP Stats Panel
+        var statsSection = document.getElementById('detail-ip-stats-section');
+        var statsPanel = document.getElementById('detail-ip-stats');
+        if (data.top_ips && data.top_ips.length > 0) {
+            statsSection.style.display = 'block';
+            statsPanel.innerHTML = data.top_ips.map(function(ip) {
+                var highlight = (ip.ip === data.client_ip) ? ' ip-stats-row-active' : '';
+                return '<div class="ip-stats-row' + highlight + '">' +
+                    '<span class="ip-stats-addr">' + escapeHtml(ip.ip) + '</span>' +
+                    '<span class="ip-stats-count">' + ip.count + ' 次</span>' +
+                    '<span class="ip-stats-time">' + formatTime(ip.last_seen) + '</span>' +
+                '</div>';
+            }).join('');
+        } else {
+            statsSection.style.display = 'none';
+        }
+
         document.getElementById('detail-subscriptions').textContent = data.subscription_urls || '(无)';
         document.getElementById('detail-original').textContent = data.original_links || '(无)';
         document.getElementById('detail-yaml').textContent = data.yaml_content || '(无)';
         document.getElementById('detail-modal').style.display = 'flex';
     })
-    .catch((err) => {
+    .catch(function(err) {
         if (err.message !== '未授权') {
             alert('加载详情失败');
         }
@@ -319,19 +405,19 @@ function closeDetailModal() {
 }
 
 function copyDownloadLink() {
-    const linkEl = document.getElementById('detail-download-link');
-    const url = linkEl.textContent;
+    var linkEl = document.getElementById('detail-download-link');
+    var url = linkEl.textContent;
     if (!url || url === '(无)') return;
 
-    const btn = document.getElementById('copy-download-btn');
-    const originalHTML = btn.innerHTML;
+    var btn = document.getElementById('copy-download-btn');
+    var originalHTML = btn.innerHTML;
 
     // Same fallback logic as the main app's copyToClipboard
     if (window.isSecureContext && navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(() => {
+        navigator.clipboard.writeText(url).then(function() {
             btn.innerHTML = '<span class="btn-icon">✅</span> 已复制';
-            setTimeout(() => { btn.innerHTML = originalHTML; }, 1500);
-        }).catch(() => {
+            setTimeout(function() { btn.innerHTML = originalHTML; }, 1500);
+        }).catch(function() {
             fallbackCopy(url, btn, originalHTML);
         });
     } else {
@@ -340,7 +426,7 @@ function copyDownloadLink() {
 }
 
 function fallbackCopy(text, btn, originalHTML) {
-    const ta = document.createElement('textarea');
+    var ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
     ta.style.left = '-9999px';
@@ -349,11 +435,11 @@ function fallbackCopy(text, btn, originalHTML) {
     try {
         document.execCommand('copy');
         btn.innerHTML = '<span class="btn-icon">✅</span> 已复制';
-    } catch {
+    } catch(e) {
         btn.innerHTML = '<span class="btn-icon">❌</span> 失败';
     }
     document.body.removeChild(ta);
-    setTimeout(() => { btn.innerHTML = originalHTML; }, 1500);
+    setTimeout(function() { btn.innerHTML = originalHTML; }, 1500);
 }
 
 // ===== Delete Record =====
@@ -371,22 +457,22 @@ function closeDeleteModal() {
 function confirmDelete() {
     if (!deleteTargetId) return;
 
-    const btn = document.getElementById('confirm-delete-btn');
+    var btn = document.getElementById('confirm-delete-btn');
     btn.disabled = true;
     btn.textContent = '删除中...';
 
-    fetch(`/api/admin/records/${deleteTargetId}`, {
+    fetch('/api/admin/records/' + deleteTargetId, {
         method: 'DELETE',
         credentials: 'same-origin'
     })
-    .then(r => {
+    .then(function(r) {
         if (r.status === 401) {
             showLogin();
             throw new Error('未授权');
         }
         return r.json();
     })
-    .then(data => {
+    .then(function(data) {
         if (data.success) {
             closeDeleteModal();
             loadRecords();
@@ -395,12 +481,12 @@ function confirmDelete() {
             alert(data.error || '删除失败');
         }
     })
-    .catch((err) => {
+    .catch(function(err) {
         if (err.message !== '未授权') {
             alert('删除失败');
         }
     })
-    .finally(() => {
+    .finally(function() {
         btn.disabled = false;
         btn.textContent = '确认删除';
     });
@@ -421,9 +507,9 @@ function closePasswordModal() {
 }
 
 function submitChangePassword() {
-    const oldPwd = document.getElementById('old-password').value;
-    const newPwd = document.getElementById('new-password').value;
-    const confirmPwd = document.getElementById('confirm-password').value;
+    var oldPwd = document.getElementById('old-password').value;
+    var newPwd = document.getElementById('new-password').value;
+    var confirmPwd = document.getElementById('confirm-password').value;
 
     if (!oldPwd || !newPwd || !confirmPwd) {
         showPasswordError('请填写所有字段');
@@ -446,14 +532,14 @@ function submitChangePassword() {
         credentials: 'same-origin',
         body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
     })
-    .then(r => {
+    .then(function(r) {
         if (r.status === 401) {
             showLogin();
             throw new Error('未授权');
         }
         return r.json();
     })
-    .then(data => {
+    .then(function(data) {
         if (data.success) {
             closePasswordModal();
             alert('密码修改成功，请重新登录');
@@ -462,7 +548,7 @@ function submitChangePassword() {
             showPasswordError(data.error || '修改失败');
         }
     })
-    .catch((err) => {
+    .catch(function(err) {
         if (err.message !== '未授权') {
             showPasswordError('网络错误');
         }
@@ -470,7 +556,7 @@ function submitChangePassword() {
 }
 
 function showPasswordError(msg) {
-    const el = document.getElementById('password-error');
+    var el = document.getElementById('password-error');
     el.textContent = msg;
     el.style.display = 'block';
 }
@@ -480,26 +566,30 @@ function showPasswordError(msg) {
 function formatTime(isoStr) {
     if (!isoStr) return '-';
     try {
-        const d = new Date(isoStr);
+        var d = new Date(isoStr);
         return d.getFullYear() + '-' +
-               String(d.getMonth() + 1).padStart(2, '0') + '-' +
-               String(d.getDate()).padStart(2, '0') + ' ' +
-               String(d.getHours()).padStart(2, '0') + ':' +
-               String(d.getMinutes()).padStart(2, '0') + ':' +
-               String(d.getSeconds()).padStart(2, '0');
-    } catch {
+               pad2(d.getMonth() + 1) + '-' +
+               pad2(d.getDate()) + ' ' +
+               pad2(d.getHours()) + ':' +
+               pad2(d.getMinutes()) + ':' +
+               pad2(d.getSeconds());
+    } catch(e) {
         return isoStr;
     }
+}
+
+function pad2(n) {
+    return (n < 10 ? '0' : '') + n;
 }
 
 function formatDate(dateStr) {
     if (!dateStr) return '-';
     try {
-        const parts = dateStr.split('-');
-        const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
-        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        return `${parts[1]}月${parts[2]}日 (周${weekdays[d.getDay()]})`;
-    } catch {
+        var parts = dateStr.split('-');
+        var weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+        var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return parts[1] + '月' + parts[2] + '日 (周' + weekdays[d.getDay()] + ')';
+    } catch(e) {
         return dateStr;
     }
 }
@@ -510,13 +600,13 @@ function truncate(str, maxLen) {
 }
 
 function escapeHtml(text) {
-    const div = document.createElement('div');
+    var div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
 // Close modals on Escape
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeDetailModal();
         closePasswordModal();
