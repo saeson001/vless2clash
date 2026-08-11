@@ -22,6 +22,17 @@
             <textarea id="vless-input" placeholder="每行粘贴一个代理链接，支持 VLESS / VMess / SS / SSR / Trojan，支持批量导入&#10;&#10;示例：&#10;vless://uuid@server:port?type=tcp&security=reality&sni=apple.com&pbk=xxx&sid=xxx&fp=chrome#节点名称&#10;vmess://eyJ2IjoiMiIsInBzIjoi5Y+R6YeN5p2lIiwiYWRkIjoiMS4yLjMuNCIsInBvcnQiOiI0NDMiLCJpZCI6Inh4eCIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInBhdGgiOiIvIn0=&#10;trojan://password@server:443?sni=example.com#节点名称"></textarea>
         </div>
 
+        <div class="card card-name-config">
+            <div class="card-header">
+                <span class="card-icon">🏷️</span>
+                <h2>配置名称</h2>
+                <span class="name-hint">Clash 导入后显示的名称</span>
+            </div>
+            <div class="name-config-row">
+                <input type="text" id="cfg-name" class="name-input" placeholder="留空自动生成：单链接用节点名，多链接用随机 Token">
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header collapsible" onclick="toggleSubscription()">
                 <span class="card-icon">🔗</span>
@@ -41,10 +52,6 @@
             </div>
             <div id="config-section" class="collapsible-content" style="display:none;">
                 <div class="config-grid">
-                    <div class="config-item config-item-full">
-                        <label>配置名称（Clash 导入后显示的名称）</label>
-                        <input type="text" id="cfg-name" placeholder="留空则自动：单链接用节点名，多链接用 token">
-                    </div>
                     <div class="config-item">
                         <label>混合端口</label>
                         <input type="number" id="cfg-port" value="7890">
