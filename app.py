@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.2"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1157,16 +1157,33 @@ def serve_by_token(token):
     except Exception:
         pass
 
-    # URL-encode the filename for Content-Disposition (RFC 5987)
+    # Sanitize display_name: strip characters that break HTTP headers
+    # (double quotes, backslashes, CR, LF — prevent header injection)
+    safe_name = display_name.replace('"', '').replace('\\', '').replace('\r', '').replace('\n', '').strip()
+    if not safe_name:
+        safe_name = token
+
+    # URL-encode for filename* parameter (RFC 5987) — preserves Chinese chars
     from urllib.parse import quote
-    encoded_name = quote(f"{display_name}.yaml")
+    encoded_name = quote(f"{safe_name}.yaml")
+
+    # ASCII-only fallback for filename= parameter (RFC 6266)
+    # Chinese chars in filename= violate the spec and break Clash Party / Mihomo
+    # Party's HTTP parser, causing import errors. Use ASCII fallback here and
+    # rely on filename*= for the proper UTF-8 name.
+    ascii_fallback = safe_name.encode('ascii', 'replace').decode('ascii').replace('?', '_')
+    if not ascii_fallback or ascii_fallback.strip('_') == '':
+        ascii_fallback = token
 
     filepath = os.path.join(DOWNLOADS_DIR, filename)
     with open(filepath, "r", encoding="utf-8") as f:
         yaml_text = f.read()
 
     response = Response(yaml_text, mimetype="text/yaml; charset=utf-8")
-    response.headers["Content-Disposition"] = f"attachment; filename=\"{display_name}.yaml\"; filename*=UTF-8''{encoded_name}"
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="{ascii_fallback}.yaml"; '
+        f"filename*=UTF-8''{encoded_name}"
+    )
     response.headers["Subscription-Userinfo"] = "upload=0; download=0; total=0; expire=0"
     return response
 
