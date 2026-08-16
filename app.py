@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.3"
+APP_VERSION = "v1.6.4"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1117,6 +1117,64 @@ def get_client_ip():
 # Routes — Public
 # ---------------------------------------------------------------------------
 
+def _parse_links_and_subs(raw_links, sub_urls):
+    """Parse raw proxy links and subscription URLs into a list of proxies.
+
+    Shared by /api/convert, /api/admin/records/<id>/edit, and /refresh.
+    Returns (proxies, errors).
+    """
+    proxies = []
+    errors = []
+    seen_names = {}
+
+    def add_proxy(proxy):
+        name = proxy["name"]
+        if name in seen_names:
+            seen_names[name] += 1
+            proxy["name"] = f"{name}_{seen_names[name]}"
+        else:
+            seen_names[name] = 0
+        proxies.append(proxy)
+
+    SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
+
+    if raw_links:
+        for line in raw_links.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            for link in re.split(r"[,\s]+", line):
+                link = link.strip()
+                if not link or not link.lower().startswith(SUPPORTED_PREFIXES):
+                    continue
+                proxy = parse_proxy(link)
+                if proxy:
+                    add_proxy(proxy)
+                else:
+                    errors.append(f"解析失败: {link[:80]}...")
+
+    if sub_urls:
+        for url_line in sub_urls.splitlines():
+            url = url_line.strip()
+            if not url:
+                continue
+            if not url.startswith("http://") and not url.startswith("https://"):
+                errors.append(f"无效订阅地址: {url[:80]}")
+                continue
+            try:
+                links = fetch_subscription(url)
+                for link in links:
+                    proxy = parse_proxy(link)
+                    if proxy:
+                        add_proxy(proxy)
+                    else:
+                        errors.append(f"订阅节点解析失败: {link[:80]}")
+            except Exception as e:
+                errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
+
+    return proxies, errors
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -1139,57 +1197,7 @@ def convert():
     config = data.get("config", {})
     custom_name = data.get("config_name", "").strip()
 
-    proxies = []
-    errors = []
-    seen_names = {}
-
-    def add_proxy(proxy):
-        name = proxy["name"]
-        if name in seen_names:
-            seen_names[name] += 1
-            proxy["name"] = f"{name}_{seen_names[name]}"
-        else:
-            seen_names[name] = 0
-        proxies.append(proxy)
-
-    SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
-
-    # Parse direct links
-    if raw_links:
-        for line in raw_links.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            # Handle comma-separated links too
-            for link in re.split(r"[,\s]+", line):
-                link = link.strip()
-                if not link or not link.lower().startswith(SUPPORTED_PREFIXES):
-                    continue
-                proxy = parse_proxy(link)
-                if proxy:
-                    add_proxy(proxy)
-                else:
-                    errors.append(f"解析失败: {link[:80]}...")
-
-    # Fetch from subscription URLs
-    if sub_urls:
-        for url_line in sub_urls.splitlines():
-            url = url_line.strip()
-            if not url:
-                continue
-            if not url.startswith("http://") and not url.startswith("https://"):
-                errors.append(f"无效订阅地址: {url[:80]}")
-                continue
-            try:
-                links = fetch_subscription(url)
-                for link in links:
-                    proxy = parse_proxy(link)
-                    if proxy:
-                        add_proxy(proxy)
-                    else:
-                        errors.append(f"订阅节点解析失败: {link[:80]}")
-            except Exception as e:
-                errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -1527,6 +1535,7 @@ def admin_edit_record(record_id):
       - links: new raw proxy links (string)
       - subscriptions: new subscription URLs (string, optional)
       - config_name: new config name (string, optional)
+      - rules_mode: "basic" | "remote" | "none" (default "basic")
     """
     if not is_admin_logged_in():
         return jsonify({"error": "未授权"}), 401
@@ -1538,6 +1547,7 @@ def admin_edit_record(record_id):
     raw_links = data.get("links", "").strip()
     sub_urls = data.get("subscriptions", "").strip()
     new_config_name = data.get("config_name", "").strip()
+    rules_mode = data.get("rules_mode", "basic")
 
     if not raw_links and not sub_urls:
         return jsonify({"error": "请输入代理链接或订阅地址"}), 400
@@ -1554,54 +1564,7 @@ def admin_edit_record(record_id):
     filename = row["filename"]
 
     # Parse new links
-    proxies = []
-    errors = []
-    seen_names = {}
-
-    def add_proxy(proxy):
-        name = proxy["name"]
-        if name in seen_names:
-            seen_names[name] += 1
-            proxy["name"] = f"{name}_{seen_names[name]}"
-        else:
-            seen_names[name] = 0
-        proxies.append(proxy)
-
-    SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
-
-    if raw_links:
-        for line in raw_links.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            for link in re.split(r"[,\s]+", line):
-                link = link.strip()
-                if not link or not link.lower().startswith(SUPPORTED_PREFIXES):
-                    continue
-                proxy = parse_proxy(link)
-                if proxy:
-                    add_proxy(proxy)
-                else:
-                    errors.append(f"解析失败: {link[:80]}...")
-
-    if sub_urls:
-        for url_line in sub_urls.splitlines():
-            url = url_line.strip()
-            if not url:
-                continue
-            if not url.startswith("http://") and not url.startswith("https://"):
-                errors.append(f"无效订阅地址: {url[:80]}")
-                continue
-            try:
-                links = fetch_subscription(url)
-                for link in links:
-                    proxy = parse_proxy(link)
-                    if proxy:
-                        add_proxy(proxy)
-                    else:
-                        errors.append(f"订阅节点解析失败: {link[:80]}")
-            except Exception as e:
-                errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -1620,8 +1583,8 @@ def admin_edit_record(record_id):
     else:
         config_name = token
 
-    # Generate new YAML (use default config)
-    yaml_content = generate_clash_yaml(proxies)
+    # Generate new YAML with selected rules_mode
+    yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
 
     # Overwrite the YAML file on disk (same filename, same token)
     filepath = os.path.join(DOWNLOADS_DIR, filename)
@@ -1645,6 +1608,76 @@ def admin_edit_record(record_id):
         "node_count": len(proxies),
         "errors": errors,
         "config_name": config_name,
+    })
+
+
+@app.route("/api/admin/records/<int:record_id>/refresh", methods=["POST"])
+def admin_refresh_record(record_id):
+    """One-click refresh: regenerate YAML for an existing record using the
+    latest routing rules, without changing links or token.
+
+    Reads original_links + subscription_urls from the DB, re-parses them,
+    and regenerates the YAML with the specified (or default "basic") rules_mode.
+    The token and download URL stay the same — Clash just needs a subscription
+    refresh to pick up the new config.
+
+    Accepts JSON body (all optional):
+      - rules_mode: "basic" | "remote" | "none" (default "basic")
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json(silent=True) or {}
+    rules_mode = data.get("rules_mode", "basic")
+
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM conversion_records WHERE id = ?", (record_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "记录不存在"}), 404
+
+    token = row["token"]
+    filename = row["filename"]
+    raw_links = row["original_links"] or ""
+    sub_urls = row["subscription_urls"] or ""
+
+    if not raw_links and not sub_urls:
+        conn.close()
+        return jsonify({"error": "该记录没有原始链接数据，无法刷新"}), 400
+
+    # Re-parse using stored links
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
+
+    if not proxies:
+        error_msg = "重新解析失败，未找到有效节点"
+        if errors:
+            error_msg += "。错误: " + "; ".join(errors[:3])
+        conn.close()
+        return jsonify({"error": error_msg}), 400
+
+    # Regenerate YAML with new rules
+    yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
+
+    # Overwrite file on disk
+    filepath = os.path.join(DOWNLOADS_DIR, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(yaml_content)
+
+    # Update DB
+    conn.execute(
+        "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
+        (yaml_content, len(proxies), record_id)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": f"配置已刷新（{rules_mode} 模式），节点数 {len(proxies)}",
+        "node_count": len(proxies),
+        "errors": errors,
+        "rules_mode": rules_mode,
     })
 
 

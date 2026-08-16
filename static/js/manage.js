@@ -313,8 +313,9 @@ function loadRecords() {
                 '<td' + updateCountClass + '>' + r.update_count + '</td>' +
                 '<td class="cell-actions">' +
                     '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
-                    '<button class="btn btn-small" onclick="copyRecordLink(\'' + escapeAttr(r.token) + '\', this)">复制链接</button>' +
+                    '<button class="btn btn-small" onclick="copyRecordLink(\'' + escapeAttr(r.token) + '\', this)">复制</button>' +
                     '<button class="btn btn-small" onclick="showEdit(' + r.id + ')">编辑</button>' +
+                    '<button class="btn btn-small btn-refresh" onclick="askRefresh(' + r.id + ')">更新</button>' +
                     '<button class="btn btn-small btn-danger" onclick="askDelete(' + r.id + ')">删除</button>' +
                 '</td>' +
             '</tr>';
@@ -539,6 +540,8 @@ function showEdit(id) {
         document.getElementById('edit-config-name').value = data.config_name || '';
         document.getElementById('edit-links').value = data.original_links || '';
         document.getElementById('edit-subscriptions').value = data.subscription_urls || '';
+        // Default to basic when editing
+        document.getElementById('edit-rules-mode').value = 'basic';
         document.getElementById('edit-modal').style.display = 'flex';
     })
     .catch(function(err) {
@@ -559,6 +562,7 @@ function submitEdit() {
     var links = document.getElementById('edit-links').value.trim();
     var subscriptions = document.getElementById('edit-subscriptions').value.trim();
     var configName = document.getElementById('edit-config-name').value.trim();
+    var rulesMode = document.getElementById('edit-rules-mode').value;
 
     if (!links && !subscriptions) {
         showEditError('请输入代理链接或订阅地址');
@@ -576,7 +580,8 @@ function submitEdit() {
         body: JSON.stringify({
             links: links,
             subscriptions: subscriptions,
-            config_name: configName
+            config_name: configName,
+            rules_mode: rulesMode
         })
     })
     .then(function(r) {
@@ -613,6 +618,68 @@ function showEditError(msg) {
     var el = document.getElementById('edit-error');
     el.textContent = msg;
     el.style.display = 'block';
+}
+
+// ===== Refresh Record (one-click update) =====
+
+var refreshTargetId = null;
+
+function askRefresh(id) {
+    refreshTargetId = id;
+    document.getElementById('refresh-error').style.display = 'none';
+    document.getElementById('refresh-rules-mode').value = 'basic';
+    document.getElementById('refresh-modal').style.display = 'flex';
+}
+
+function closeRefreshModal() {
+    document.getElementById('refresh-modal').style.display = 'none';
+    refreshTargetId = null;
+}
+
+function confirmRefresh() {
+    if (!refreshTargetId) return;
+
+    var rulesMode = document.getElementById('refresh-rules-mode').value;
+    var btn = document.getElementById('confirm-refresh-btn');
+    btn.disabled = true;
+    btn.textContent = '刷新中...';
+
+    fetch('/api/admin/records/' + refreshTargetId + '/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ rules_mode: rulesMode })
+    })
+    .then(function(r) {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
+    .then(function(data) {
+        if (data.success) {
+            closeRefreshModal();
+            loadRecords();
+            loadStats();
+            alert(data.message);
+        } else {
+            var errEl = document.getElementById('refresh-error');
+            errEl.textContent = data.error || '刷新失败';
+            errEl.style.display = 'block';
+        }
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权') {
+            var errEl = document.getElementById('refresh-error');
+            errEl.textContent = '网络错误';
+            errEl.style.display = 'block';
+        }
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.textContent = '确认刷新';
+    });
 }
 
 // ===== Change Password =====
@@ -739,5 +806,6 @@ document.addEventListener('keydown', function(e) {
         closePasswordModal();
         closeDeleteModal();
         closeEditModal();
+        closeRefreshModal();
     }
 });

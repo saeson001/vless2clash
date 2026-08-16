@@ -560,6 +560,33 @@ textarea:focus {
     background: #d9363e;
 }
 
+.btn-refresh {
+    background: #52c41a;
+    color: #fff;
+    border: none;
+}
+
+.btn-refresh:hover {
+    background: #389e0d;
+}
+
+.config-select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+    font-size: 14px;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+}
+
+.config-select:focus {
+    border-color: #4c6ef5;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(76, 110, 245, 0.15);
+}
+
 .login-error {
     color: #ff4d4f;
     font-size: 13px;

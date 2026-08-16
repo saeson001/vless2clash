@@ -106,11 +106,11 @@
                                 <th style="width:60px;">节点数量</th>
                                 <th style="width:140px;">Token</th>
                                 <th style="width:70px;">更新次数</th>
-                                <th style="width:240px;">操作</th>
+                                <th style="width:300px;">操作</th>
                             </tr>
                         </thead>
                         <tbody id="records-tbody">
-                            <tr><td colspan="7" class="table-empty">加载中...</td></tr>
+                    <tr><td colspan="7" class="table-empty">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -302,6 +302,14 @@
                         <input type="text" id="edit-config-name" placeholder="留空则自动生成">
                     </div>
                     <div class="form-group">
+                        <label>分流规则</label>
+                        <select id="edit-rules-mode" class="config-select">
+                            <option value="basic">基础（内置国内直连）</option>
+                            <option value="remote">完整（远程 Loyalsoldier）</option>
+                            <option value="none">无（全局代理）</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>代理链接（VLESS / VMess / SS / SSR / Trojan）</label>
                         <textarea id="edit-links" rows="8" placeholder="每行一个代理链接"></textarea>
                     </div>
@@ -315,6 +323,34 @@
                         <button class="btn btn-primary" id="submit-edit-btn" onclick="submitEdit()">保存更新</button>
                     </div>
                     <p class="edit-hint">💡 更新后 Token 和下载链接保持不变，Clash 刷新订阅即可获取新配置</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Refresh Config Modal -->
+        <div id="refresh-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closeRefreshModal()"></div>
+            <div class="modal-content modal-sm">
+                <div class="modal-header">
+                    <h2>🔄 刷新配置</h2>
+                    <button class="modal-close" onclick="closeRefreshModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <p>将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
+                    <p class="delete-warning">Token 和下载链接保持不变，Clash 刷新订阅即可生效。</p>
+                    <div class="form-group">
+                        <label>分流规则</label>
+                        <select id="refresh-rules-mode" class="config-select">
+                            <option value="basic">基础（内置国内直连）</option>
+                            <option value="remote">完整（远程 Loyalsoldier）</option>
+                            <option value="none">无（全局代理）</option>
+                        </select>
+                    </div>
+                    <div id="refresh-error" class="login-error" style="display:none;"></div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="closeRefreshModal()">取消</button>
+                        <button class="btn btn-primary" id="confirm-refresh-btn" onclick="confirmRefresh()">确认刷新</button>
+                    </div>
                 </div>
             </div>
         </div>
