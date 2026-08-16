@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.2"
+APP_VERSION = "v1.6.3"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -724,6 +724,113 @@ def parse_proxy(link):
     return None
 
 
+def _emit_rules(lines, group_name, rules_mode="basic"):
+    """Emit routing rules.
+
+    Without these rules, Mihomo / Clash Meta behaves like 'global' mode
+    even when the UI shows 'rule' mode — every request gets routed through
+    the proxy group, so Chinese domestic sites (Baidu, Bilibili, etc.)
+    become unreachable when a foreign node is selected.
+
+    rules_mode:
+      - "basic"  : inline rules covering LAN/Private IPs, common CN
+                   service domains and .cn TLD -> DIRECT. No external
+                   dependencies, works offline. (default)
+      - "remote" : rule-providers pointing at Loyalsoldier v2ray-rules-dat
+                   (more complete coverage; requires internet on first
+                   start to fetch rules)
+      - "none"   : only MATCH fallback (legacy behavior, equivalent to
+                   global mode)
+    """
+    if rules_mode == "none":
+        lines.append("rules:")
+        lines.append(f"  - MATCH,{group_name}")
+        return
+
+    if rules_mode == "remote":
+        lines.append("rule-providers:")
+        lines.append("  geosite-cn:")
+        lines.append("    type: http")
+        lines.append("    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat\"")
+        lines.append("    interval: 86400")
+        lines.append("    format: binary")
+        lines.append("    behavior: domain")
+        lines.append("  geoip-cn:")
+        lines.append("    type: http")
+        lines.append("    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat\"")
+        lines.append("    interval: 86400")
+        lines.append("    format: binary")
+        lines.append("    behavior: ipcidr")
+        lines.append("")
+        lines.append("rules:")
+        lines.append("  - RULE-SET,geosite-cn,DIRECT")
+        lines.append("  - RULE-SET,geoip-cn,DIRECT")
+        lines.append("  - GEOIP,LAN,DIRECT")
+        lines.append("  - GEOIP,PRIVATE,DIRECT")
+        lines.append(f"  - MATCH,{group_name}")
+        return
+
+    # default: basic inline rules
+    lines.append("rules:")
+
+    # LAN / Private IPs - direct (no-resolve skips DNS lookup)
+    for cidr in [
+        "0.0.0.0/8",          # current network
+        "10.0.0.0/8",         # private
+        "100.64.0.0/10",      # carrier-grade NAT
+        "127.0.0.0/8",        # loopback
+        "169.254.0.0/16",     # link-local
+        "172.16.0.0/12",      # private
+        "192.0.0.0/24",       # IETF protocol assignments
+        "192.0.2.0/24",       # TEST-NET-1
+        "192.88.99.0/24",     # 6to4 relay anycast
+        "192.168.0.0/16",     # private
+        "198.18.0.0/15",      # benchmark testing
+        "198.51.100.0/24",    # TEST-NET-2
+        "203.0.113.0/24",     # TEST-NET-3
+        "224.0.0.0/4",        # multicast
+        "240.0.0.0/4",        # reserved
+        "255.255.255.255/32", # broadcast
+        "::1/128",            # IPv6 loopback
+        "fc00::/7",           # IPv6 unique local
+        "fe80::/10",          # IPv6 link-local
+    ]:
+        lines.append(f"  - IP-CIDR,{cidr},DIRECT,no-resolve")
+
+    # Chinese top-level domains
+    lines.append("  - DOMAIN-SUFFIX,cn,DIRECT")
+    lines.append("  - DOMAIN-SUFFIX,xn--fiqs8s,DIRECT")  # .中国 punycode
+    lines.append("  - DOMAIN-SUFFIX,lan,DIRECT")
+    lines.append("  - DOMAIN-SUFFIX,local,DIRECT")
+
+    # Common Chinese service domains (covers the bulk of CN traffic)
+    cn_domains = [
+        # Internet / portals
+        "baidu.com", "qq.com", "taobao.com", "weibo.com", "163.com",
+        "126.com", "sohu.com", "ifeng.com", "sina.com.cn", "sina.cn",
+        "bilibili.com", "bilibili.tv", "douyin.com", "kuaishou.com",
+        "zhihu.com", "douban.com", "csdn.net", "jianshu.com",
+        # E-commerce
+        "jd.com", "tmall.com", "alipay.com", "taobaocdn.com",
+        "alicdn.com", "alimama.com", "iqiyi.com", "youku.com",
+        "tudou.com", "v.qq.com", "gtimg.cn", "qpic.cn",
+        "bdimg.com", "bdstatic.com", "weixin.qq.com", "wechat.com",
+        "wechatpay.com", "tenpay.com",
+        # Tech companies
+        "tencent.com", "aliyun.com", "alicloud.com", "aliyun.cn",
+        "xiaomi.com", "mi.com", "huawei.com", "bytedance.com",
+        "meituan.com", "dianping.com", "ctrip.com", "trip.com",
+        "baidu.cn", "baiducontent.com",
+        # Government / state
+        "gov.cn", "miit.gov.cn", "miibeian.gov.cn",
+    ]
+    for d in cn_domains:
+        lines.append(f"  - DOMAIN-SUFFIX,{d},DIRECT")
+
+    # Final fallback -> proxy
+    lines.append(f"  - MATCH,{group_name}")
+
+
 def generate_clash_yaml(proxies, config=None):
     """Generate Clash Meta / Mihomo Party compatible YAML.
 
@@ -733,6 +840,10 @@ def generate_clash_yaml(proxies, config=None):
       - mode (str, default "rule")
       - log_level (str, default "info")
       - group_name (str, default "节点选择")
+      - rules_mode (str, default "basic")
+          "basic"  = inline domestic-direct routing rules
+          "remote" = rule-providers via Loyalsoldier v2ray-rules-dat
+          "none"   = MATCH-only (legacy behavior)
     """
     if config is None:
         config = {}
@@ -742,6 +853,7 @@ def generate_clash_yaml(proxies, config=None):
     mode = config.get("mode", "rule")
     log_level = config.get("log_level", "info")
     group_name = config.get("group_name", "节点选择")
+    rules_mode = config.get("rules_mode", "basic")
 
     lines = []
 
@@ -786,8 +898,7 @@ def generate_clash_yaml(proxies, config=None):
     lines.append("")
 
     # Rules
-    lines.append("rules:")
-    lines.append(f'  - MATCH,{group_name}')
+    _emit_rules(lines, group_name, rules_mode)
 
     return "\n".join(lines) + "\n"
 

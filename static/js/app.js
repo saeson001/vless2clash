@@ -144,6 +144,7 @@ function getConfig() {
         mode: document.getElementById('cfg-mode').value,
         log_level: document.getElementById('cfg-log-level').value,
         group_name: document.getElementById('cfg-group-name').value || '节点选择',
+        rules_mode: document.getElementById('cfg-rules-mode') ? document.getElementById('cfg-rules-mode').value : 'basic',
     };
 }
 

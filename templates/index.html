@@ -85,6 +85,14 @@
                         <label>策略组名称</label>
                         <input type="text" id="cfg-group-name" value="节点选择">
                     </div>
+                    <div class="config-item">
+                        <label>分流规则</label>
+                        <select id="cfg-rules-mode">
+                            <option value="basic" selected>基础（内置国内直连）</option>
+                            <option value="remote">完整（远程 Loyalsoldier）</option>
+                            <option value="none">无规则（等同于全局代理）</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
