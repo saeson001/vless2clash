@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.6.4
+# 版本: v1.6.5
 # 作者: saeson
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
 #       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
@@ -17,7 +17,7 @@
 
 set -e
 
-VERSION="v1.6.4"
+VERSION="v1.6.5"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"

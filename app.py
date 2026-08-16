@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.4"
+APP_VERSION = "v1.6.5"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -826,6 +826,13 @@ def _emit_rules(lines, group_name, rules_mode="basic"):
     ]
     for d in cn_domains:
         lines.append(f"  - DOMAIN-SUFFIX,{d},DIRECT")
+
+    # CN geo databases (geoip/geosite data bundled with Mihomo / Clash Party).
+    # GEOIP is essential: many CN sites use .com/.net domains not in the list
+    # above; without it they fall through to MATCH -> proxy and become
+    # unreachable from a foreign node.
+    lines.append("  - GEOSITE,cn,DIRECT")
+    lines.append("  - GEOIP,CN,DIRECT")
 
     # Final fallback -> proxy
     lines.append(f"  - MATCH,{group_name}")
