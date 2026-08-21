@@ -1430,7 +1430,7 @@ def admin_records():
     # Include update_count: how many total conversions from the same IP
     cursor = conn.execute(
         f"""SELECT r.id, r.created_at, r.original_links, r.subscription_urls, r.client_ip,
-                  r.token, r.node_count,
+                  r.token, r.node_count, r.config_name,
                   length(r.yaml_content) as yaml_size,
                   (SELECT COUNT(*) FROM conversion_records WHERE client_ip = r.client_ip) as update_count
            FROM conversion_records r {where_sql}
@@ -1448,6 +1448,7 @@ def admin_records():
             "client_ip": row["client_ip"],
             "token": row["token"],
             "node_count": row["node_count"],
+            "config_name": row["config_name"] or "",
             "yaml_size": row["yaml_size"],
             "update_count": row["update_count"],
         })
