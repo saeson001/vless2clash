@@ -309,7 +309,7 @@ function loadRecords() {
                 '<td class="cell-time">' + formatTime(r.created_at) + '</td>' +
                 '<td class="cell-ip">' + escapeHtml(r.client_ip) + '</td>' +
                 '<td>' + r.node_count + '</td>' +
-                '<td class="cell-token">' + escapeHtml(r.token) + '</td>' +
+                '<td class="cell-token">' + escapeHtml(r.config_name || r.token) + '</td>' +
                 '<td' + updateCountClass + '>' + r.update_count + '</td>' +
                 '<td class="cell-actions">' +
                     '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
