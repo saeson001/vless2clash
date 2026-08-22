@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.6.5
+# 版本: v1.6.11
 # 作者: saeson
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
 #       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
@@ -17,7 +17,7 @@
 
 set -e
 
-VERSION="v1.6.10"
+VERSION="v1.6.11"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
@@ -313,12 +313,6 @@ do_reset_admin() {
 # 更新函数
 # ============================================================
 do_update() {
-    echo "========================================"
-    echo "  更新 VLESS to Clash YAML"
-    echo "  当前版本: $(get_installed_version) -> 新版本: $VERSION"
-    echo "========================================"
-    echo ""
-
     if [ ! -d "$APP_DIR" ]; then
         echo "[提示] 未检测到已安装的版本，将执行全新部署..."
         echo ""
@@ -332,6 +326,34 @@ do_update() {
     fi
 
     detect_os
+
+    # v1.6.11: 原地更新支持 - 脚本在 APP_DIR 内直接运行时，先从 GitHub 拉取最新代码
+    # （旧版直接 cp $SCRIPT_DIR/*，在安装目录内运行等于旧文件拷自己）
+    if [ "$(cd "$SCRIPT_DIR" 2>/dev/null && pwd)" = "$APP_DIR" ]; then
+        echo "[0/6] 检测到在安装目录内原地运行，从 GitHub 下载最新代码..."
+        command -v unzip >/dev/null 2>&1 || $PKG_INSTALL unzip > /dev/null 2>&1 || true
+        DL_DIR=$(mktemp -d /tmp/vless2clash_upd_XXXXXX)
+        ZIP_URL="https://github.com/saeson001/vless2clash/archive/refs/heads/main.zip"
+        wget -q -O "${DL_DIR}/src.zip" "$ZIP_URL" 2>/dev/null || \
+            curl -sL -o "${DL_DIR}/src.zip" "$ZIP_URL"
+        if [ -s "${DL_DIR}/src.zip" ] && unzip -tq "${DL_DIR}/src.zip" > /dev/null 2>&1; then
+            unzip -qo "${DL_DIR}/src.zip" -d "$DL_DIR"
+            SCRIPT_DIR="${DL_DIR}/vless2clash-main"
+            REMOTE_VER=$(grep -m1 '^VERSION=' "${SCRIPT_DIR}/deploy.sh" | cut -d'"' -f2)
+            if [ -n "$REMOTE_VER" ]; then
+                VERSION="$REMOTE_VER"
+            fi
+            echo "  -> 最新代码已下载: $VERSION"
+        else
+            echo "  -> [警告] 下载最新代码失败，将使用本地文件继续（可能不是最新版）"
+        fi
+    fi
+
+    echo "========================================"
+    echo "  更新 VLESS to Clash YAML"
+    echo "  当前版本: $(get_installed_version) -> 新版本: $VERSION"
+    echo "========================================"
+    echo ""
 
     echo "[1/6] 停止旧服务..."
     systemctl stop "$APP_NAME" 2>/dev/null || true

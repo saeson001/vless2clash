@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.10"
+APP_VERSION = "v1.6.11"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
