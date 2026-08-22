@@ -369,14 +369,11 @@ def parse_vless(vless_url):
 
     # Reality options
     if security == "reality":
-        # v1.6.8: REALITY defaults to Vision flow when the URL omits it.
-        # Reason: sing-box core (NekoBox / SFA etc.) ONLY works with
-        # flow=xtls-rprx-vision for VLESS REALITY — without it the
-        # handshake fails with "reality verification failed". Xray
-        # (v2rayN) and Mihomo (Clash Party) accept Vision with or
-        # without the URL parameter, and 3x-ui's default REALITY
-        # client setup uses Vision, so defaulting is safe.
-        proxy.setdefault("flow", "xtls-rprx-vision")
+        # v1.6.10: reverted the v1.6.8 "default Vision flow" behavior.
+        # The inbound on the server has no Vision flow configured, so
+        # adding flow=xtls-rprx-vision to links that omit it makes the
+        # server reject the request at the VLESS layer (connection
+        # closed / timeout). Output flow ONLY when the URL carries it.
         proxy["servername"] = params.get("sni", params.get("peer", ""))
         reality_opts = {}
         if "pbk" in params or "public-key" in params:
