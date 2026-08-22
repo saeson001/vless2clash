@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.7"
+APP_VERSION = "v1.6.8"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -363,14 +363,20 @@ def parse_vless(vless_url):
         "udp": True,
     }
 
-    # Flow: only use if explicitly present in the URL
-    # Do NOT auto-add xtls-rprx-vision — if the server doesn't support it,
-    # sending Vision flow will cause connection timeout
+    # Flow: use the value from the URL if explicitly present
     if "flow" in params and params["flow"]:
         proxy["flow"] = params["flow"]
 
     # Reality options
     if security == "reality":
+        # v1.6.8: REALITY defaults to Vision flow when the URL omits it.
+        # Reason: sing-box core (NekoBox / SFA etc.) ONLY works with
+        # flow=xtls-rprx-vision for VLESS REALITY — without it the
+        # handshake fails with "reality verification failed". Xray
+        # (v2rayN) and Mihomo (Clash Party) accept Vision with or
+        # without the URL parameter, and 3x-ui's default REALITY
+        # client setup uses Vision, so defaulting is safe.
+        proxy.setdefault("flow", "xtls-rprx-vision")
         proxy["servername"] = params.get("sni", params.get("peer", ""))
         reality_opts = {}
         if "pbk" in params or "public-key" in params:
