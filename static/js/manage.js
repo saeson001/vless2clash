@@ -623,29 +623,53 @@ function showEditError(msg) {
 
 // ===== Refresh Record (one-click update) =====
 
-var refreshTargetId = null;
+var refreshTargetId = null;  // record id, or 'all' for batch refresh
+
+function _resetRefreshModalTexts() {
+    document.getElementById('refresh-modal-title').textContent = '🔄 刷新配置';
+    document.getElementById('refresh-modal-desc').textContent = '将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。';
+    document.getElementById('confirm-refresh-btn').textContent = '确认刷新';
+}
 
 function askRefresh(id) {
     refreshTargetId = id;
     document.getElementById('refresh-error').style.display = 'none';
     document.getElementById('refresh-rules-mode').value = 'basic';
+    _resetRefreshModalTexts();
+    document.getElementById('refresh-modal').style.display = 'flex';
+}
+
+function askRefreshAll() {
+    refreshTargetId = 'all';
+    document.getElementById('refresh-error').style.display = 'none';
+    document.getElementById('refresh-rules-mode').value = 'basic';
+    _resetRefreshModalTexts();
+    document.getElementById('refresh-modal-title').textContent = '🔄 一键更新全部记录';
+    document.getElementById('refresh-modal-desc').textContent = '将使用所有记录的原始链接，按当前最新转换逻辑批量重新生成 YAML 配置（升级转换器后批量生效用）。';
+    document.getElementById('confirm-refresh-btn').textContent = '批量刷新全部';
     document.getElementById('refresh-modal').style.display = 'flex';
 }
 
 function closeRefreshModal() {
     document.getElementById('refresh-modal').style.display = 'none';
     refreshTargetId = null;
+    _resetRefreshModalTexts();
 }
 
 function confirmRefresh() {
     if (!refreshTargetId) return;
 
+    var isAll = refreshTargetId === 'all';
     var rulesMode = document.getElementById('refresh-rules-mode').value;
     var btn = document.getElementById('confirm-refresh-btn');
     btn.disabled = true;
-    btn.textContent = '刷新中...';
+    btn.textContent = isAll ? '批量刷新中...' : '刷新中...';
 
-    fetch('/api/admin/records/' + refreshTargetId + '/refresh', {
+    var url = isAll
+        ? '/api/admin/records/refresh-all'
+        : '/api/admin/records/' + refreshTargetId + '/refresh';
+
+    fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -679,7 +703,7 @@ function confirmRefresh() {
     })
     .finally(function() {
         btn.disabled = false;
-        btn.textContent = '确认刷新';
+        btn.textContent = isAll ? '批量刷新全部' : '确认刷新';
     });
 }
 

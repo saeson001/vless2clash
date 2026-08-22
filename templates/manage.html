@@ -94,6 +94,7 @@
                     <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input">
                     <button class="btn btn-small" onclick="loadRecords()">搜索</button>
                     <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
+                    <button class="btn btn-small" onclick="askRefreshAll()">🔄 一键更新全部</button>
                 </div>
 
                 <div class="table-wrapper">
@@ -336,11 +337,11 @@
             <div class="modal-overlay" onclick="closeRefreshModal()"></div>
             <div class="modal-content modal-sm">
                 <div class="modal-header">
-                    <h2>🔄 刷新配置</h2>
+                    <h2 id="refresh-modal-title">🔄 刷新配置</h2>
                     <button class="modal-close" onclick="closeRefreshModal()">✕</button>
                 </div>
                 <div class="modal-body">
-                    <p>将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
+                    <p id="refresh-modal-desc">将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
                     <p class="delete-warning">Token 和下载链接保持不变，Clash 刷新订阅即可生效。</p>
                     <div class="form-group">
                         <label>分流规则</label>

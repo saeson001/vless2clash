@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.8"
+APP_VERSION = "v1.6.9"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1708,6 +1708,73 @@ def admin_refresh_record(record_id):
         "message": f"配置已刷新（{rules_mode} 模式），节点数 {len(proxies)}。客户端下次拉取订阅时生效。",
         "node_count": len(proxies),
         "errors": errors,
+        "rules_mode": rules_mode,
+    })
+
+
+@app.route("/api/admin/records/refresh-all", methods=["POST"])
+def admin_refresh_all_records():
+    """One-click refresh ALL records: regenerate YAML for every record using
+    the current conversion logic.
+
+    Useful after a converter upgrade (e.g. v1.6.8 REALITY default Vision flow)
+    to batch-regenerate stored YAML without touching each record manually.
+    Token, links and download URLs stay unchanged — clients just refresh
+    their subscription to pick up the new config.
+
+    Accepts JSON body (all optional):
+      - rules_mode: "basic" | "remote" | "none" (default "basic")
+
+    Note: update_count is NOT touched — it counts client pulls of /d/<token>.
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json(silent=True) or {}
+    rules_mode = data.get("rules_mode", "basic")
+
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM conversion_records").fetchall()
+
+    success = 0
+    failed = []
+    for row in rows:
+        record_id = row["id"]
+        raw_links = row["original_links"] or ""
+        sub_urls = row["subscription_urls"] or ""
+        try:
+            if not raw_links and not sub_urls:
+                failed.append({"id": record_id, "error": "无原始链接数据"})
+                continue
+            proxies, _errors = _parse_links_and_subs(raw_links, sub_urls)
+            if not proxies:
+                failed.append({"id": record_id, "error": "重新解析失败，无有效节点"})
+                continue
+            yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
+            filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(yaml_content)
+            conn.execute(
+                "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
+                (yaml_content, len(proxies), record_id)
+            )
+            success += 1
+        except Exception as e:  # noqa: BLE001 - keep batch going on single failure
+            failed.append({"id": record_id, "error": str(e)[:100]})
+
+    conn.commit()
+    conn.close()
+
+    msg = f"已批量刷新 {success} 条记录（{rules_mode} 模式）"
+    if failed:
+        msg += f"，{len(failed)} 条失败（ID: "
+        msg += ", ".join(str(f["id"]) for f in failed) + "）"
+
+    return jsonify({
+        "success": True,
+        "message": msg,
+        "refreshed": success,
+        "failed": failed,
         "rules_mode": rules_mode,
     })
 
