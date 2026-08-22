@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.6"
+APP_VERSION = "v1.6.7"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1285,6 +1285,13 @@ def serve_by_token(token):
         conn = get_db()
         cursor = conn.execute("SELECT config_name FROM conversion_records WHERE token = ?", (token,))
         row = cursor.fetchone()
+        # Count this client pull as one subscription update
+        # (Clash Party / Mihomo importing or refreshing the subscription URL)
+        conn.execute(
+            "UPDATE conversion_records SET update_count = update_count + 1 WHERE token = ?",
+            (token,)
+        )
+        conn.commit()
         conn.close()
         if row and row["config_name"]:
             display_name = row["config_name"]
@@ -1435,7 +1442,8 @@ def admin_records():
     total = cursor.fetchone()["cnt"]
 
     # Get records (exclude full yaml_content for list view)
-    # update_count: how many times this specific record has been refreshed
+    # update_count: how many times clients (Clash Party etc.) have pulled
+    # this record's subscription URL /d/<token>
     cursor = conn.execute(
         f"""SELECT r.id, r.created_at, r.original_links, r.subscription_urls, r.client_ip,
                   r.token, r.node_count, r.config_name, r.update_count,
@@ -1680,27 +1688,21 @@ def admin_refresh_record(record_id):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(yaml_content)
 
-    # Update DB (also increment update_count)
+    # Update DB — update_count is NOT touched here: it counts client pulls
+    # of /d/<token>, not admin-side refreshes
     conn.execute(
-        "UPDATE conversion_records SET yaml_content = ?, node_count = ?, update_count = update_count + 1 WHERE id = ?",
+        "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
         (yaml_content, len(proxies), record_id)
     )
     conn.commit()
-
-    # Get the new update_count for the response
-    new_update_count = conn.execute(
-        "SELECT update_count FROM conversion_records WHERE id = ?",
-        (record_id,)
-    ).fetchone()["update_count"]
     conn.close()
 
     return jsonify({
         "success": True,
-        "message": f"配置已刷新（{rules_mode} 模式），节点数 {len(proxies)}",
+        "message": f"配置已刷新（{rules_mode} 模式），节点数 {len(proxies)}。客户端下次拉取订阅时生效。",
         "node_count": len(proxies),
         "errors": errors,
         "rules_mode": rules_mode,
-        "update_count": new_update_count,
     })
 
 
