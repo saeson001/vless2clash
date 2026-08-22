@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.5"
+APP_VERSION = "v1.6.6"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -105,7 +105,8 @@ def init_db():
             token TEXT NOT NULL UNIQUE,
             filename TEXT NOT NULL,
             node_count INTEGER DEFAULT 0,
-            config_name TEXT DEFAULT ''
+            config_name TEXT DEFAULT '',
+            update_count INTEGER DEFAULT 0
         )
     """)
     # Migration: add config_name column for existing databases
@@ -113,6 +114,13 @@ def init_db():
         conn.execute("SELECT config_name FROM conversion_records LIMIT 1")
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE conversion_records ADD COLUMN config_name TEXT DEFAULT ''")
+        conn.commit()
+
+    # Migration: add update_count column for existing databases
+    try:
+        conn.execute("SELECT update_count FROM conversion_records LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE conversion_records ADD COLUMN update_count INTEGER DEFAULT 0")
         conn.commit()
 
     conn.execute("""
@@ -1427,12 +1435,11 @@ def admin_records():
     total = cursor.fetchone()["cnt"]
 
     # Get records (exclude full yaml_content for list view)
-    # Include update_count: how many total conversions from the same IP
+    # update_count: how many times this specific record has been refreshed
     cursor = conn.execute(
         f"""SELECT r.id, r.created_at, r.original_links, r.subscription_urls, r.client_ip,
-                  r.token, r.node_count, r.config_name,
-                  length(r.yaml_content) as yaml_size,
-                  (SELECT COUNT(*) FROM conversion_records WHERE client_ip = r.client_ip) as update_count
+                  r.token, r.node_count, r.config_name, r.update_count,
+                  length(r.yaml_content) as yaml_size
            FROM conversion_records r {where_sql}
            ORDER BY r.created_at DESC
            LIMIT ? OFFSET ?""",
@@ -1514,6 +1521,7 @@ def admin_record_detail(record_id):
         "node_count": row["node_count"],
         "config_name": row["config_name"] if "config_name" in row.keys() else "",
         "download_url": download_url,
+        "update_count": row["update_count"] if "update_count" in row.keys() else 0,
         "ip_update_count": ip_update_count,
         "top_ips": top_ips,
     })
@@ -1672,12 +1680,18 @@ def admin_refresh_record(record_id):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(yaml_content)
 
-    # Update DB
+    # Update DB (also increment update_count)
     conn.execute(
-        "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
+        "UPDATE conversion_records SET yaml_content = ?, node_count = ?, update_count = update_count + 1 WHERE id = ?",
         (yaml_content, len(proxies), record_id)
     )
     conn.commit()
+
+    # Get the new update_count for the response
+    new_update_count = conn.execute(
+        "SELECT update_count FROM conversion_records WHERE id = ?",
+        (record_id,)
+    ).fetchone()["update_count"]
     conn.close()
 
     return jsonify({
@@ -1686,6 +1700,7 @@ def admin_refresh_record(record_id):
         "node_count": len(proxies),
         "errors": errors,
         "rules_mode": rules_mode,
+        "update_count": new_update_count,
     })
 
 

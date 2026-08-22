@@ -361,6 +361,7 @@ function showDetail(id) {
         document.getElementById('detail-time').textContent = formatTime(data.created_at);
         document.getElementById('detail-ip').textContent = data.client_ip;
         document.getElementById('detail-ip-update-count').textContent = data.ip_update_count + ' 次';
+        document.getElementById('detail-update-count').textContent = (data.update_count || 0) + ' 次';
         document.getElementById('detail-nodes').textContent = data.node_count + ' 个';
         document.getElementById('detail-token').textContent = data.token;
         document.getElementById('detail-config-name').textContent = data.config_name || '(自动)';
