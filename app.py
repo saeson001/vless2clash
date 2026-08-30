@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.12"
+APP_VERSION = "v1.6.13"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -134,6 +134,13 @@ def init_db():
         except sqlite3.OperationalError:
             conn.execute(f"ALTER TABLE conversion_records ADD COLUMN {col} {ctype}")
             conn.commit()
+
+    # Migration: add updated_at column (last time the token's YAML was regenerated)
+    try:
+        conn.execute("SELECT updated_at FROM conversion_records LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE conversion_records ADD COLUMN updated_at TEXT DEFAULT ''")
+        conn.commit()
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
@@ -232,13 +239,15 @@ def change_admin_password(username, old_password, new_password):
 
 def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name="", ai_routing=False, ai_japan="", ai_hongkong=""):
     """Insert a conversion record into the database."""
+    now = datetime.datetime.now().isoformat()
     conn = get_db()
     conn.execute(
         """INSERT INTO conversion_records
-           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name, ai_routing, ai_japan, ai_hongkong)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (created_at, updated_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name, ai_routing, ai_japan, ai_hongkong)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            datetime.datetime.now().isoformat(),
+            now,
+            now,
             original_links,
             subscription_urls,
             yaml_content,
@@ -1613,7 +1622,7 @@ def admin_records():
     # update_count: how many times clients (Clash Party etc.) have pulled
     # this record's subscription URL /d/<token>
     cursor = conn.execute(
-        f"""SELECT r.id, r.created_at, r.original_links, r.subscription_urls, r.client_ip,
+        f"""SELECT r.id, r.created_at, r.updated_at, r.original_links, r.subscription_urls, r.client_ip,
                   r.token, r.node_count, r.config_name, r.update_count,
                   length(r.yaml_content) as yaml_size
            FROM conversion_records r {where_sql}
@@ -1626,6 +1635,7 @@ def admin_records():
         records.append({
             "id": row["id"],
             "created_at": row["created_at"],
+            "updated_at": row["updated_at"] or row["created_at"],
             "original_links": row["original_links"],
             "subscription_urls": row["subscription_urls"],
             "client_ip": row["client_ip"],
@@ -1688,6 +1698,7 @@ def admin_record_detail(record_id):
     return jsonify({
         "id": row["id"],
         "created_at": row["created_at"],
+        "updated_at": row["updated_at"] if "updated_at" in row.keys() and row["updated_at"] else row["created_at"],
         "original_links": row["original_links"],
         "subscription_urls": row["subscription_urls"],
         "yaml_content": row["yaml_content"],
@@ -1801,13 +1812,14 @@ def admin_edit_record(record_id):
         f.write(yaml_content)
 
     # Update database record
+    now = datetime.datetime.now().isoformat()
     conn.execute(
         """UPDATE conversion_records
            SET original_links = ?, subscription_urls = ?, yaml_content = ?,
-               node_count = ?, config_name = ?, ai_routing = ?, ai_japan = ?, ai_hongkong = ?
+               node_count = ?, config_name = ?, ai_routing = ?, ai_japan = ?, ai_hongkong = ?, updated_at = ?
            WHERE id = ?""",
         (raw_links, sub_urls, yaml_content, len(proxies), config_name,
-         1 if ai_routing else 0, ai_japan, ai_hongkong, record_id)
+         1 if ai_routing else 0, ai_japan, ai_hongkong, now, record_id)
     )
     conn.commit()
     conn.close()
@@ -1887,9 +1899,10 @@ def admin_refresh_record(record_id):
 
     # Update DB — update_count is NOT touched here: it counts client pulls
     # of /d/<token>, not admin-side refreshes
+    now = datetime.datetime.now().isoformat()
     conn.execute(
-        "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
-        (yaml_content, len(proxies), record_id)
+        "UPDATE conversion_records SET yaml_content = ?, node_count = ?, updated_at = ? WHERE id = ?",
+        (yaml_content, len(proxies), now, record_id)
     )
     conn.commit()
     conn.close()
@@ -1929,52 +1942,76 @@ def admin_refresh_all_records():
     rows = conn.execute("SELECT * FROM conversion_records").fetchall()
 
     success = 0
-    failed = []
+    ai_enabled = 0
+    skipped = []
+    now = datetime.datetime.now().isoformat()
     for row in rows:
         record_id = row["id"]
         raw_links = row["original_links"] or ""
         sub_urls = row["subscription_urls"] or ""
         try:
             if not raw_links and not sub_urls:
-                failed.append({"id": record_id, "error": "无原始链接数据"})
+                skipped.append({"id": record_id, "error": "无原始链接数据"})
                 continue
             proxies, _errors = _parse_links_and_subs(raw_links, sub_urls)
             if not proxies:
-                failed.append({"id": record_id, "error": "重新解析失败，无有效节点"})
+                skipped.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
+            # Force-enable AI smart routing on every record when both a Japan
+            # and a Hong Kong node can be identified.
+            cls = classify_region_nodes(proxies)
+            if cls["japan"] and cls["hongkong"]:
+                ai_routing = True
+                ai_japan = cls["japan"][0]
+                ai_hongkong = cls["hongkong"][0]
+            else:
+                ai_routing = False
+                ai_japan = ""
+                ai_hongkong = ""
+                skipped.append({
+                    "id": record_id,
+                    "error": "找不到日本/香港节点，未启用 AI 分流（保留原分流）",
+                })
             yaml_content = generate_clash_yaml(
                 proxies,
                 {
                     "rules_mode": rules_mode,
-                    "ai_routing": bool(row["ai_routing"]),
-                    "ai_japan": row["ai_japan"] or "",
-                    "ai_hongkong": row["ai_hongkong"] or "",
+                    "ai_routing": ai_routing,
+                    "ai_japan": ai_japan,
+                    "ai_hongkong": ai_hongkong,
                 }
             )
             filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(yaml_content)
             conn.execute(
-                "UPDATE conversion_records SET yaml_content = ?, node_count = ? WHERE id = ?",
-                (yaml_content, len(proxies), record_id)
+                """UPDATE conversion_records
+                   SET yaml_content = ?, node_count = ?, ai_routing = ?, ai_japan = ?,
+                       ai_hongkong = ?, updated_at = ?
+                   WHERE id = ?""",
+                (yaml_content, len(proxies), 1 if ai_routing else 0,
+                 ai_japan, ai_hongkong, now, record_id)
             )
             success += 1
+            if ai_routing:
+                ai_enabled += 1
         except Exception as e:  # noqa: BLE001 - keep batch going on single failure
-            failed.append({"id": record_id, "error": str(e)[:100]})
+            skipped.append({"id": record_id, "error": str(e)[:100]})
 
     conn.commit()
     conn.close()
 
-    msg = f"已批量刷新 {success} 条记录（{rules_mode} 模式）"
-    if failed:
-        msg += f"，{len(failed)} 条失败（ID: "
-        msg += ", ".join(str(f["id"]) for f in failed) + "）"
+    msg = f"已批量刷新 {success} 条记录（{rules_mode} 模式，其中 {ai_enabled} 条已启用 AI 分流）"
+    if skipped:
+        msg += f"，{len(skipped)} 条跳过（ID: "
+        msg += ", ".join(str(s["id"]) for s in skipped) + "）"
 
     return jsonify({
         "success": True,
         "message": msg,
         "refreshed": success,
-        "failed": failed,
+        "ai_enabled": ai_enabled,
+        "skipped": skipped,
         "rules_mode": rules_mode,
     })
 
