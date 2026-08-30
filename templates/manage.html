@@ -95,6 +95,7 @@
                     <button class="btn btn-small" onclick="loadRecords()">搜索</button>
                     <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
                     <button class="btn btn-small btn-secondary" onclick="toggleColumnPanel()">列设置</button>
+                    <button class="btn btn-small btn-refresh" id="refresh-all-btn" onclick="refreshAllRecords()">⚡ 一键全部更新</button>
                     <div id="column-panel" class="column-panel" style="display:none;">
                         <div class="column-panel-title">显示列</div>
                         <label><input type="checkbox" data-col="created" onchange="toggleColumn(this)"> 时间</label>
