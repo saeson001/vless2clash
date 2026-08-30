@@ -690,6 +690,39 @@ function closeRefreshModal() {
     refreshTargetId = null;
 }
 
+function refreshAllRecords() {
+    if (!confirm('确定要对列表中【所有】配置执行一键全部更新吗？\n\n· 同时含日本+香港节点的记录：强制启用 AI 智能分流\n· 其余记录：按各自原有设置重算\n· YAML 内容与「最后更新」时间都会刷新（token 不变）')) {
+        return;
+    }
+    var btn = document.getElementById('refresh-all-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
+    fetch('/api/admin/records/refresh-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ rules_mode: 'basic' })
+    })
+    .then(function(r) {
+        if (r.status === 401) { showLogin(); throw new Error('未授权'); }
+        return r.json();
+    })
+    .then(function(data) {
+        if (data.success) {
+            loadRecords();
+            loadStats();
+            alert(data.message || '已全部更新');
+        } else {
+            alert('更新失败：' + (data.error || '未知错误'));
+        }
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权') alert('网络错误：' + err.message);
+    })
+    .finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ 一键全部更新'; }
+    });
+}
+
 function confirmRefresh() {
     if (!refreshTargetId) return;
 
