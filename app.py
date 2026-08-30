@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.14"
+APP_VERSION = "v1.6.15"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -824,6 +824,17 @@ def _emit_ai_rules(lines):
         lines.append(f"  - DOMAIN-SUFFIX,{d},{AI_GROUP_NAME}")
 
 
+# Defensive: reject known placeholder / unreachable upstream IPs right before the
+# MATCH fallback. A misconfigured downstream device (e.g. a secondary WiFi AP that
+# hardcodes its DNS upstream to a dead address like 5.5.5.5:55555) would otherwise
+# flood the proxy with doomed connections and clutter the connection list. REJECT
+# makes them fail instantly without consuming a proxy node. Add more CIDRs here
+# if other dead/placeholder upstreams show up.
+DEFENSIVE_RULES = [
+    "  - IP-CIDR,5.5.5.5/32,REJECT",
+]
+
+
 def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japan="", ai_hongkong=""):
     """Emit routing rules.
 
@@ -846,8 +857,10 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("rules:")
         if ai_routing:
             _emit_ai_rules(lines)
+            lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
         else:
+            lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{group_name}")
         return
 
@@ -873,8 +886,10 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("  - GEOIP,PRIVATE,DIRECT")
         if ai_routing:
             _emit_ai_rules(lines)
+            lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
         else:
+            lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{group_name}")
         return
 
@@ -945,8 +960,10 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
     # Final fallback -> proxy
     if ai_routing:
         _emit_ai_rules(lines)
+        lines.extend(DEFENSIVE_RULES)
         lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
     else:
+        lines.extend(DEFENSIVE_RULES)
         lines.append(f"  - MATCH,{group_name}")
 
 
