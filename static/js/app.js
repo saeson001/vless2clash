@@ -37,7 +37,7 @@ function toggleConfig() {
 
 // ===== Main Actions =====
 
-function convert() {
+function convert(aiOverride) {
     const links = document.getElementById('vless-input').value.trim();
     const subscriptions = document.getElementById('subscription-input') ? document.getElementById('subscription-input').value.trim() : '';
     const config = getConfig();
@@ -48,13 +48,21 @@ function convert() {
         return;
     }
 
+    const payload = { links, subscriptions, config, config_name: configName };
+    // When the picker supplied explicit nodes, force AI routing on with them
+    if (aiOverride) {
+        payload.ai_routing = true;
+        payload.ai_japan = aiOverride.japan;
+        payload.ai_hongkong = aiOverride.hongkong;
+    }
+
     showStatus('正在转换...', 'loading');
     document.getElementById('convert-btn').disabled = true;
 
     fetch('/api/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ links, subscriptions, config, config_name: configName })
+        body: JSON.stringify(payload)
     })
     .then(resp => {
         if (!resp.ok) {
@@ -63,6 +71,10 @@ function convert() {
         return resp.json();
     })
     .then(data => {
+        if (data.ai_routing_ambiguous) {
+            showAiPicker(data);
+            return;
+        }
         document.getElementById('status-bar').style.display = 'none';
         showResult(data);
     })
@@ -72,6 +84,42 @@ function convert() {
     .finally(() => {
         document.getElementById('convert-btn').disabled = false;
     });
+}
+
+function showAiPicker(data) {
+    const jp = document.getElementById('ai-japan-select');
+    const hk = document.getElementById('ai-hk-select');
+    jp.innerHTML = '';
+    hk.innerHTML = '';
+    (data.candidates || []).forEach(name => {
+        jp.appendChild(new Option(name, name));
+        hk.appendChild(new Option(name, name));
+    });
+
+    // Preselect auto-detected node when unambiguous
+    if (data.detected_japan && data.detected_japan.length === 1) jp.value = data.detected_japan[0];
+    if (data.detected_hongkong && data.detected_hongkong.length === 1) hk.value = data.detected_hongkong[0];
+
+    // Fallback defaults: first candidate as Japan, last as Hong Kong
+    if (!jp.value && data.candidates && data.candidates.length) jp.value = data.candidates[0];
+    if (!hk.value && data.candidates && data.candidates.length) {
+        hk.value = data.candidates[data.candidates.length - 1];
+    }
+
+    document.getElementById('ai-picker').style.display = 'block';
+    document.getElementById('ai-picker').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    showStatus('请指定日本 / 香港节点后点「确认生成」', 'loading');
+}
+
+function confirmAiRouting() {
+    const japan = document.getElementById('ai-japan-select').value;
+    const hongkong = document.getElementById('ai-hk-select').value;
+    document.getElementById('ai-picker').style.display = 'none';
+    convert({ japan, hongkong });
+}
+
+function cancelAiRouting() {
+    document.getElementById('ai-picker').style.display = 'none';
 }
 
 function showResult(data) {
@@ -145,6 +193,7 @@ function getConfig() {
         log_level: document.getElementById('cfg-log-level').value,
         group_name: document.getElementById('cfg-group-name').value || '节点选择',
         rules_mode: document.getElementById('cfg-rules-mode') ? document.getElementById('cfg-rules-mode').value : 'basic',
+        ai_routing: document.getElementById('cfg-ai-routing') ? document.getElementById('cfg-ai-routing').value === 'on' : false,
     };
 }
 
