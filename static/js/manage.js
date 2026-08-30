@@ -285,7 +285,7 @@ function loadRecords() {
     })
     .then(function(data) {
         if (data.error) {
-            tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">' + escapeHtml(data.error) + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="table-empty error-text">' + escapeHtml(data.error) + '</td></tr>';
             return;
         }
 
@@ -298,7 +298,7 @@ function loadRecords() {
         document.getElementById('next-page').disabled = data.page >= totalPages;
 
         if (data.records.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="table-empty">暂无记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="table-empty">暂无记录</td></tr>';
             return;
         }
 
@@ -307,6 +307,7 @@ function loadRecords() {
             return '<tr>' +
                 '<td>' + r.id + '</td>' +
                 '<td class="cell-time">' + formatTime(r.created_at) + '</td>' +
+                '<td class="cell-time">' + formatTime(r.updated_at || r.created_at) + '</td>' +
                 '<td class="cell-ip">' + escapeHtml(r.client_ip) + '</td>' +
                 '<td>' + r.node_count + '</td>' +
                 '<td class="cell-token">' + escapeHtml(r.config_name || r.token) + '</td>' +
@@ -323,7 +324,7 @@ function loadRecords() {
     })
     .catch(function(err) {
         if (err.message !== '未授权') {
-            tbody.innerHTML = '<tr><td colspan="7" class="table-empty error-text">加载失败</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="table-empty error-text">加载失败</td></tr>';
         }
     });
 }
@@ -359,6 +360,7 @@ function showDetail(id) {
         }
         document.getElementById('detail-id').textContent = data.id;
         document.getElementById('detail-time').textContent = formatTime(data.created_at);
+        document.getElementById('detail-updated-at').textContent = formatTime(data.updated_at || data.created_at);
         document.getElementById('detail-ip').textContent = data.client_ip;
         document.getElementById('detail-ip-update-count').textContent = data.ip_update_count + ' 次';
         document.getElementById('detail-update-count').textContent = (data.update_count || 0) + ' 次';
@@ -623,53 +625,29 @@ function showEditError(msg) {
 
 // ===== Refresh Record (one-click update) =====
 
-var refreshTargetId = null;  // record id, or 'all' for batch refresh
-
-function _resetRefreshModalTexts() {
-    document.getElementById('refresh-modal-title').textContent = '🔄 刷新配置';
-    document.getElementById('refresh-modal-desc').textContent = '将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。';
-    document.getElementById('confirm-refresh-btn').textContent = '确认刷新';
-}
+var refreshTargetId = null;
 
 function askRefresh(id) {
     refreshTargetId = id;
     document.getElementById('refresh-error').style.display = 'none';
     document.getElementById('refresh-rules-mode').value = 'basic';
-    _resetRefreshModalTexts();
-    document.getElementById('refresh-modal').style.display = 'flex';
-}
-
-function askRefreshAll() {
-    refreshTargetId = 'all';
-    document.getElementById('refresh-error').style.display = 'none';
-    document.getElementById('refresh-rules-mode').value = 'basic';
-    _resetRefreshModalTexts();
-    document.getElementById('refresh-modal-title').textContent = '🔄 一键更新全部记录';
-    document.getElementById('refresh-modal-desc').textContent = '将使用所有记录的原始链接，按当前最新转换逻辑批量重新生成 YAML 配置（升级转换器后批量生效用）。';
-    document.getElementById('confirm-refresh-btn').textContent = '批量刷新全部';
     document.getElementById('refresh-modal').style.display = 'flex';
 }
 
 function closeRefreshModal() {
     document.getElementById('refresh-modal').style.display = 'none';
     refreshTargetId = null;
-    _resetRefreshModalTexts();
 }
 
 function confirmRefresh() {
     if (!refreshTargetId) return;
 
-    var isAll = refreshTargetId === 'all';
     var rulesMode = document.getElementById('refresh-rules-mode').value;
     var btn = document.getElementById('confirm-refresh-btn');
     btn.disabled = true;
-    btn.textContent = isAll ? '批量刷新中...' : '刷新中...';
+    btn.textContent = '刷新中...';
 
-    var url = isAll
-        ? '/api/admin/records/refresh-all'
-        : '/api/admin/records/' + refreshTargetId + '/refresh';
-
-    fetch(url, {
+    fetch('/api/admin/records/' + refreshTargetId + '/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -703,7 +681,7 @@ function confirmRefresh() {
     })
     .finally(function() {
         btn.disabled = false;
-        btn.textContent = isAll ? '批量刷新全部' : '确认刷新';
+        btn.textContent = '确认刷新';
     });
 }
 
