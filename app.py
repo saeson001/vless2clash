@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.15"
+APP_VERSION = "v1.6.16"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1011,6 +1011,40 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f"log-level: {log_level}")
     lines.append("")
 
+    # DNS — best-practice for China: domestic DoH (HTTPS-encrypted, GFW-proof)
+    # so foreign domains (e.g. youtube.com) resolve correctly and fast. OpenClash
+    # ignores the subscription's dns: and uses its own DNS settings; this block
+    # makes the generated YAML self-sufficient for Clash Party / mihomo standalone
+    # (where the YouTube-slow DNS issue would otherwise recur after reinstall).
+    lines.append("dns:")
+    lines.append("  enable: true")
+    lines.append("  enhanced-mode: fake-ip")
+    lines.append("  fake-ip-range: 198.18.0.1/16")
+    lines.append("  use-hosts: true")
+    lines.append("  nameserver:")
+    lines.append("    - https://doh.pub/dns-query")
+    lines.append("    - https://dns.alidns.com/dns-query")
+    lines.append("  fallback:")
+    lines.append("    - https://doh.pub/dns-query")
+    lines.append("    - https://dns.alidns.com/dns-query")
+    lines.append("  fallback-filter:")
+    lines.append("    geoip: true")
+    lines.append("    geoip-code: CN")
+    lines.append("    ipcidr:")
+    lines.append("      - 240.0.0.0/4")
+    lines.append("      - 0.0.0.0/32")
+    lines.append("  fake-ip-filter:")
+    lines.append("    - '*.lan'")
+    lines.append("    - '*.local'")
+    lines.append("    - localhost")
+    lines.append("    - '*.localhost'")
+    lines.append("    - '*.example'")
+    lines.append("    - '*.invalid'")
+    lines.append("    - 'time.*.com'")
+    lines.append("    - '*.music.163.com'")
+    lines.append("    - '*.stun.*.*'")
+    lines.append("")
+
     # Proxies
     lines.append("proxies:")
     for p in proxies:
@@ -1035,7 +1069,16 @@ def generate_clash_yaml(proxies, config=None):
     lines.append("")
 
     # Proxy groups
+    # Health-check used by fallback groups for automatic node failover
+    # (e.g. Hong Kong VPS traffic exhausted -> auto switch to Japan). The test
+    # traffic goes THROUGH the proxy node, so an overseas URL is fine from CN.
+    HC_URL = "https://www.gstatic.com/generate_204"
+    HC_INTERVAL = 300
+    HC_TOLERANCE = 50
+    HC_TIMEOUT = 5000
+
     lines.append("proxy-groups:")
+    # Manual select group (user override) — always available
     lines.append(f'  - name: "{group_name}"')
     lines.append(f'    type: select')
     lines.append(f'    proxies:')
@@ -1045,28 +1088,49 @@ def generate_clash_yaml(proxies, config=None):
     lines.append("")
 
     if ai_routing:
-        # AI group — defaults to the Japan node (first entry wins in a select group)
-        lines.append(f'  - name: "{AI_GROUP_NAME}"')
-        lines.append(f'    type: select')
-        lines.append(f'    proxies:')
+        # 默认分流: Hong Kong preferred, Japan as backup, then others, DIRECT.
+        # fallback type => use the first node that passes the health check, in order.
+        default_members = []
+        if ai_hongkong:
+            default_members.append(ai_hongkong)
         if ai_japan:
-            lines.append(f'      - "{ai_japan}"')
+            default_members.append(ai_japan)
         for p in proxies:
-            if p["name"] != ai_japan:
-                lines.append(f'      - "{p["name"]}"')
-        lines.append(f'      - DIRECT')
+            if p["name"] not in default_members:
+                default_members.append(p["name"])
+        default_members.append("DIRECT")
+
+        # AI分流: Japan preferred, Hong Kong as backup (AI services route via JP).
+        ai_members = []
+        if ai_japan:
+            ai_members.append(ai_japan)
+        if ai_hongkong:
+            ai_members.append(ai_hongkong)
+        for p in proxies:
+            if p["name"] not in ai_members:
+                ai_members.append(p["name"])
+        ai_members.append("DIRECT")
+
+        lines.append(f'  - name: "{DEFAULT_GROUP_NAME}"')
+        lines.append(f'    type: fallback')
+        lines.append(f'    proxies:')
+        for m in default_members:
+            lines.append(f'      - "{m}"')
+        lines.append(f'    url: {HC_URL}')
+        lines.append(f'    interval: {HC_INTERVAL}')
+        lines.append(f'    tolerance: {HC_TOLERANCE}')
+        lines.append(f'    timeout: {HC_TIMEOUT}')
         lines.append("")
 
-        # Default group — defaults to the Hong Kong node
-        lines.append(f'  - name: "{DEFAULT_GROUP_NAME}"')
-        lines.append(f'    type: select')
+        lines.append(f'  - name: "{AI_GROUP_NAME}"')
+        lines.append(f'    type: fallback')
         lines.append(f'    proxies:')
-        if ai_hongkong:
-            lines.append(f'      - "{ai_hongkong}"')
-        for p in proxies:
-            if p["name"] != ai_hongkong:
-                lines.append(f'      - "{p["name"]}"')
-        lines.append(f'      - DIRECT')
+        for m in ai_members:
+            lines.append(f'      - "{m}"')
+        lines.append(f'    url: {HC_URL}')
+        lines.append(f'    interval: {HC_INTERVAL}')
+        lines.append(f'    tolerance: {HC_TOLERANCE}')
+        lines.append(f'    timeout: {HC_TIMEOUT}')
         lines.append("")
 
     # Rules
