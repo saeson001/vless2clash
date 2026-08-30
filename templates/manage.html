@@ -94,7 +94,6 @@
                     <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input">
                     <button class="btn btn-small" onclick="loadRecords()">搜索</button>
                     <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
-                    <button class="btn btn-small" onclick="askRefreshAll()">🔄 一键更新全部</button>
                 </div>
 
                 <div class="table-wrapper">
@@ -103,6 +102,7 @@
                             <tr>
                                 <th style="width:40px;">ID</th>
                                 <th style="width:160px;">时间</th>
+                                <th style="width:160px;">最后更新</th>
                                 <th style="width:130px;">客户端IP</th>
                                 <th style="width:60px;">节点数量</th>
                                 <th style="width:140px;">配置名称</th>
@@ -111,7 +111,7 @@
                             </tr>
                         </thead>
                         <tbody id="records-tbody">
-                    <tr><td colspan="7" class="table-empty">加载中...</td></tr>
+                    <tr><td colspan="8" class="table-empty">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -182,6 +182,10 @@
                     <div class="detail-row">
                         <label>转换时间</label>
                         <span id="detail-time"></span>
+                    </div>
+                    <div class="detail-row">
+                        <label>最后更新</label>
+                        <span id="detail-updated-at"></span>
                     </div>
                     <div class="detail-row">
                         <label>转换者 IP</label>
@@ -337,11 +341,11 @@
             <div class="modal-overlay" onclick="closeRefreshModal()"></div>
             <div class="modal-content modal-sm">
                 <div class="modal-header">
-                    <h2 id="refresh-modal-title">🔄 刷新配置</h2>
+                    <h2>🔄 刷新配置</h2>
                     <button class="modal-close" onclick="closeRefreshModal()">✕</button>
                 </div>
                 <div class="modal-body">
-                    <p id="refresh-modal-desc">将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
+                    <p>将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
                     <p class="delete-warning">Token 和下载链接保持不变，Clash 刷新订阅即可生效。</p>
                     <div class="form-group">
                         <label>分流规则</label>
