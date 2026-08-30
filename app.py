@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.11"
+APP_VERSION = "v1.6.12"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -122,6 +122,18 @@ def init_db():
     except sqlite3.OperationalError:
         conn.execute("ALTER TABLE conversion_records ADD COLUMN update_count INTEGER DEFAULT 0")
         conn.commit()
+
+    # Migration: add AI smart-routing columns
+    for col, ctype in [
+        ("ai_routing", "INTEGER DEFAULT 0"),
+        ("ai_japan", "TEXT DEFAULT ''"),
+        ("ai_hongkong", "TEXT DEFAULT ''"),
+    ]:
+        try:
+            conn.execute(f"SELECT {col} FROM conversion_records LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute(f"ALTER TABLE conversion_records ADD COLUMN {col} {ctype}")
+            conn.commit()
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
@@ -218,13 +230,13 @@ def change_admin_password(username, old_password, new_password):
     return True, "密码修改成功"
 
 
-def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name=""):
+def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name="", ai_routing=False, ai_japan="", ai_hongkong=""):
     """Insert a conversion record into the database."""
     conn = get_db()
     conn.execute(
         """INSERT INTO conversion_records
-           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (created_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name, ai_routing, ai_japan, ai_hongkong)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             datetime.datetime.now().isoformat(),
             original_links,
@@ -234,7 +246,10 @@ def record_conversion(original_links, subscription_urls, yaml_content, client_ip
             token,
             filename,
             node_count,
-            config_name
+            config_name,
+            1 if ai_routing else 0,
+            ai_japan,
+            ai_hongkong
         )
     )
     conn.commit()
@@ -735,7 +750,72 @@ def parse_proxy(link):
     return None
 
 
-def _emit_rules(lines, group_name, rules_mode="basic"):
+# ---------------------------------------------------------------------------
+# AI Smart Routing — foreign AI services -> Japan node, everything else -> HK
+# ---------------------------------------------------------------------------
+# Node role is detected by the proxy name. When ambiguous (multiple or missing
+# Japan/HK nodes) the generation page asks the user to pick interactively.
+JAPAN_KEYWORDS = ["日本", "东京", "大阪", "tokyo", "osaka", "jp", "japan"]
+HK_KEYWORDS = ["香港", "港", "hongkong", "hong kong", "hk"]
+
+AI_GROUP_NAME = "AI 分流"
+DEFAULT_GROUP_NAME = "默认分流"
+
+# Foreign AI service domains routed to the Japan node.
+# Chinese AI services (deepseek.com, qwen, zhipu, kimi, coze, etc.) are
+# intentionally excluded — they fall through to GEO/CN direct rules.
+AI_DOMAINS = [
+    "openai.com", "chat.openai.com", "api.openai.com", "platform.openai.com",
+    "chatgpt.com", "oaiusercontent.com",
+    "anthropic.com", "claude.ai", "api.anthropic.com",
+    "poe.com",
+    "perplexity.ai",
+    "character.ai",
+    "huggingface.co",
+    "midjourney.com",
+    "you.com",
+    "x.ai", "grok.x.ai", "api.x.ai",
+    "mistral.ai", "api.mistral.ai", "codestral.ai",
+    "cohere.com", "api.cohere.ai",
+    "replicate.com",
+    "stability.ai", "platform.stability.ai",
+    "elevenlabs.io",
+    "runwayml.com",
+    "pi.ai",
+    "gemini.google.com", "aistudio.google.com", "notebooklm.google.com",
+    "llama.meta.com",
+    "fireworks.ai", "api.fireworks.ai",
+    "together.xyz", "api.together.xyz",
+    "deepinfra.com", "api.deepinfra.com",
+    "openrouter.ai",
+    "groq.com", "api.groq.com",
+    "cursor.com", "cursor.sh",
+    "githubcopilot.com",
+]
+
+
+def classify_region_nodes(proxies):
+    """Detect Japan / Hong Kong node names from proxy names.
+
+    Returns {"japan": [...], "hongkong": [...]} of matched proxy display names.
+    """
+    japan, hongkong = [], []
+    for p in proxies:
+        name_l = p["name"].lower()
+        if any(kw in name_l for kw in JAPAN_KEYWORDS):
+            japan.append(p["name"])
+        if any(kw in name_l for kw in HK_KEYWORDS):
+            hongkong.append(p["name"])
+    return {"japan": japan, "hongkong": hongkong}
+
+
+def _emit_ai_rules(lines):
+    """Emit DOMAIN-SUFFIX rules for foreign AI services -> AI 分流 group."""
+    for d in AI_DOMAINS:
+        lines.append(f"  - DOMAIN-SUFFIX,{d},{AI_GROUP_NAME}")
+
+
+def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japan="", ai_hongkong=""):
     """Emit routing rules.
 
     Without these rules, Mihomo / Clash Meta behaves like 'global' mode
@@ -755,7 +835,11 @@ def _emit_rules(lines, group_name, rules_mode="basic"):
     """
     if rules_mode == "none":
         lines.append("rules:")
-        lines.append(f"  - MATCH,{group_name}")
+        if ai_routing:
+            _emit_ai_rules(lines)
+            lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
+        else:
+            lines.append(f"  - MATCH,{group_name}")
         return
 
     if rules_mode == "remote":
@@ -778,7 +862,11 @@ def _emit_rules(lines, group_name, rules_mode="basic"):
         lines.append("  - RULE-SET,geoip-cn,DIRECT")
         lines.append("  - GEOIP,LAN,DIRECT")
         lines.append("  - GEOIP,PRIVATE,DIRECT")
-        lines.append(f"  - MATCH,{group_name}")
+        if ai_routing:
+            _emit_ai_rules(lines)
+            lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
+        else:
+            lines.append(f"  - MATCH,{group_name}")
         return
 
     # default: basic inline rules
@@ -846,7 +934,11 @@ def _emit_rules(lines, group_name, rules_mode="basic"):
     lines.append("  - GEOIP,CN,DIRECT")
 
     # Final fallback -> proxy
-    lines.append(f"  - MATCH,{group_name}")
+    if ai_routing:
+        _emit_ai_rules(lines)
+        lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
+    else:
+        lines.append(f"  - MATCH,{group_name}")
 
 
 def generate_clash_yaml(proxies, config=None):
@@ -862,16 +954,27 @@ def generate_clash_yaml(proxies, config=None):
           "basic"  = inline domestic-direct routing rules
           "remote" = rule-providers via Loyalsoldier v2ray-rules-dat
           "none"   = MATCH-only (legacy behavior)
+      - ai_routing (bool, default False)
+          When True: foreign AI domains -> Japan node (AI 分流 group),
+          all other traffic -> Hong Kong node (默认分流 group).
+          Requires ai_japan / ai_hongkong proxy display names.
+          Forces mode=rule (AI routing is meaningless in global/direct mode).
     """
     if config is None:
         config = {}
 
     port = config.get("port", 7890)
     allow_lan = config.get("allow_lan", True)
-    mode = config.get("mode", "rule")
     log_level = config.get("log_level", "info")
     group_name = config.get("group_name", "节点选择")
     rules_mode = config.get("rules_mode", "basic")
+
+    ai_routing = bool(config.get("ai_routing", False))
+    ai_japan = config.get("ai_japan", "") or ""
+    ai_hongkong = config.get("ai_hongkong", "") or ""
+
+    # AI routing needs rule mode to have any effect
+    mode = "rule" if ai_routing else config.get("mode", "rule")
 
     lines = []
 
@@ -915,8 +1018,33 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f'      - DIRECT')
     lines.append("")
 
+    if ai_routing:
+        # AI group — defaults to the Japan node (first entry wins in a select group)
+        lines.append(f'  - name: "{AI_GROUP_NAME}"')
+        lines.append(f'    type: select')
+        lines.append(f'    proxies:')
+        if ai_japan:
+            lines.append(f'      - "{ai_japan}"')
+        for p in proxies:
+            if p["name"] != ai_japan:
+                lines.append(f'      - "{p["name"]}"')
+        lines.append(f'      - DIRECT')
+        lines.append("")
+
+        # Default group — defaults to the Hong Kong node
+        lines.append(f'  - name: "{DEFAULT_GROUP_NAME}"')
+        lines.append(f'    type: select')
+        lines.append(f'    proxies:')
+        if ai_hongkong:
+            lines.append(f'      - "{ai_hongkong}"')
+        for p in proxies:
+            if p["name"] != ai_hongkong:
+                lines.append(f'      - "{p["name"]}"')
+        lines.append(f'      - DIRECT')
+        lines.append("")
+
     # Rules
-    _emit_rules(lines, group_name, rules_mode)
+    _emit_rules(lines, group_name, rules_mode, ai_routing, ai_japan, ai_hongkong)
 
     return "\n".join(lines) + "\n"
 
@@ -1223,6 +1351,32 @@ def convert():
             error_msg += "。错误详情: " + "; ".join(errors[:5])
         return jsonify({"error": error_msg}), 400
 
+    # --- AI smart routing: foreign AI -> Japan node, rest -> Hong Kong node ---
+    ai_routing = bool(data.get("ai_routing", False))
+    ai_japan = (data.get("ai_japan", "") or "").strip()
+    ai_hongkong = (data.get("ai_hongkong", "") or "").strip()
+
+    if ai_routing:
+        proxy_names = {p["name"] for p in proxies}
+        if ai_japan and ai_hongkong and ai_japan in proxy_names and ai_hongkong in proxy_names:
+            # Explicit assignment from the interactive picker — already validated
+            pass
+        else:
+            # Auto-detect by node name; if ambiguous, hand the choice back to the page
+            cls = classify_region_nodes(proxies)
+            if len(cls["japan"]) == 1 and len(cls["hongkong"]) == 1:
+                ai_japan = cls["japan"][0]
+                ai_hongkong = cls["hongkong"][0]
+            else:
+                return jsonify({
+                    "ai_routing_ambiguous": True,
+                    "candidates": [p["name"] for p in proxies],
+                    "detected_japan": cls["japan"],
+                    "detected_hongkong": cls["hongkong"],
+                    "errors": errors,
+                    "message": "无法自动判断日本/香港节点，请在生成页手动指定",
+                })
+
     # Determine config_name (the name Clash shows when importing)
     if not custom_name:
         if len(proxies) == 1:
@@ -1233,6 +1387,11 @@ def convert():
             config_name = ""
     else:
         config_name = custom_name
+
+    config["ai_routing"] = ai_routing
+    if ai_routing:
+        config["ai_japan"] = ai_japan
+        config["ai_hongkong"] = ai_hongkong
 
     yaml_content = generate_clash_yaml(proxies, config)
 
@@ -1254,7 +1413,10 @@ def convert():
         token=token,
         filename=filename,
         node_count=len(proxies),
-        config_name=config_name
+        config_name=config_name,
+        ai_routing=ai_routing,
+        ai_japan=ai_japan,
+        ai_hongkong=ai_hongkong
     )
 
     # Build download URL — no extension, no sequential numbering
@@ -1267,6 +1429,9 @@ def convert():
         "token": token,
         "config_name": config_name,
         "download_url": download_url,
+        "ai_routing": ai_routing,
+        "ai_japan": ai_japan,
+        "ai_hongkong": ai_hongkong,
         "proxies": [{"name": p["name"], "server": p["server"], "port": p["port"]} for p in proxies],
     })
 
@@ -1575,6 +1740,9 @@ def admin_edit_record(record_id):
     sub_urls = data.get("subscriptions", "").strip()
     new_config_name = data.get("config_name", "").strip()
     rules_mode = data.get("rules_mode", "basic")
+    ai_routing = bool(data.get("ai_routing", False))
+    ai_japan = (data.get("ai_japan", "") or "").strip()
+    ai_hongkong = (data.get("ai_hongkong", "") or "").strip()
 
     if not raw_links and not sub_urls:
         return jsonify({"error": "请输入代理链接或订阅地址"}), 400
@@ -1610,8 +1778,22 @@ def admin_edit_record(record_id):
     else:
         config_name = token
 
-    # Generate new YAML with selected rules_mode
-    yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
+    # AI routing: validate explicit assignment or fall back to stored/existing
+    if ai_routing:
+        proxy_names = {p["name"] for p in proxies}
+        if not (ai_japan in proxy_names and ai_hongkong in proxy_names):
+            cls = classify_region_nodes(proxies)
+            if len(cls["japan"]) == 1 and len(cls["hongkong"]) == 1:
+                ai_japan, ai_hongkong = cls["japan"][0], cls["hongkong"][0]
+            else:
+                ai_japan = ai_japan if ai_japan in proxy_names else ""
+                ai_hongkong = ai_hongkong if ai_hongkong in proxy_names else ""
+
+    # Generate new YAML with selected rules_mode + AI routing
+    yaml_content = generate_clash_yaml(
+        proxies,
+        {"rules_mode": rules_mode, "ai_routing": ai_routing, "ai_japan": ai_japan, "ai_hongkong": ai_hongkong}
+    )
 
     # Overwrite the YAML file on disk (same filename, same token)
     filepath = os.path.join(DOWNLOADS_DIR, filename)
@@ -1622,9 +1804,10 @@ def admin_edit_record(record_id):
     conn.execute(
         """UPDATE conversion_records
            SET original_links = ?, subscription_urls = ?, yaml_content = ?,
-               node_count = ?, config_name = ?
+               node_count = ?, config_name = ?, ai_routing = ?, ai_japan = ?, ai_hongkong = ?
            WHERE id = ?""",
-        (raw_links, sub_urls, yaml_content, len(proxies), config_name, record_id)
+        (raw_links, sub_urls, yaml_content, len(proxies), config_name,
+         1 if ai_routing else 0, ai_japan, ai_hongkong, record_id)
     )
     conn.commit()
     conn.close()
@@ -1635,6 +1818,9 @@ def admin_edit_record(record_id):
         "node_count": len(proxies),
         "errors": errors,
         "config_name": config_name,
+        "ai_routing": ai_routing,
+        "ai_japan": ai_japan,
+        "ai_hongkong": ai_hongkong,
     })
 
 
@@ -1669,6 +1855,11 @@ def admin_refresh_record(record_id):
     raw_links = row["original_links"] or ""
     sub_urls = row["subscription_urls"] or ""
 
+    # Preserve stored AI routing settings across refresh
+    ai_routing = bool(row["ai_routing"])
+    ai_japan = row["ai_japan"] or ""
+    ai_hongkong = row["ai_hongkong"] or ""
+
     if not raw_links and not sub_urls:
         conn.close()
         return jsonify({"error": "该记录没有原始链接数据，无法刷新"}), 400
@@ -1683,8 +1874,11 @@ def admin_refresh_record(record_id):
         conn.close()
         return jsonify({"error": error_msg}), 400
 
-    # Regenerate YAML with new rules
-    yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
+    # Regenerate YAML with new rules (AI routing preserved)
+    yaml_content = generate_clash_yaml(
+        proxies,
+        {"rules_mode": rules_mode, "ai_routing": ai_routing, "ai_japan": ai_japan, "ai_hongkong": ai_hongkong}
+    )
 
     # Overwrite file on disk
     filepath = os.path.join(DOWNLOADS_DIR, filename)
@@ -1702,10 +1896,11 @@ def admin_refresh_record(record_id):
 
     return jsonify({
         "success": True,
-        "message": f"配置已刷新（{rules_mode} 模式），节点数 {len(proxies)}。客户端下次拉取订阅时生效。",
+        "message": f"配置已刷新（{rules_mode} 模式{'，AI 分流' if ai_routing else ''}），节点数 {len(proxies)}。客户端下次拉取订阅时生效。",
         "node_count": len(proxies),
         "errors": errors,
         "rules_mode": rules_mode,
+        "ai_routing": ai_routing,
     })
 
 
@@ -1747,7 +1942,15 @@ def admin_refresh_all_records():
             if not proxies:
                 failed.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
-            yaml_content = generate_clash_yaml(proxies, {"rules_mode": rules_mode})
+            yaml_content = generate_clash_yaml(
+                proxies,
+                {
+                    "rules_mode": rules_mode,
+                    "ai_routing": bool(row["ai_routing"]),
+                    "ai_japan": row["ai_japan"] or "",
+                    "ai_hongkong": row["ai_hongkong"] or "",
+                }
+            )
             filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(yaml_content)
