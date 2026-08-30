@@ -5,6 +5,55 @@ let totalPages = 1;
 let perPage = 20;
 let deleteTargetId = null;
 
+// ===== Column Visibility (customizable display columns) =====
+
+const COLUMN_KEYS = ['created', 'updated', 'ip', 'nodes', 'name', 'count'];
+const COLUMN_STORAGE_KEY = 'vless2clash_columns';
+let columnVisible = {};
+
+function initColumns() {
+    try {
+        columnVisible = JSON.parse(localStorage.getItem(COLUMN_STORAGE_KEY)) || {};
+    } catch {
+        columnVisible = {};
+    }
+    // Default: hide "时间" (created_at) since "最后更新" is more useful; show others
+    COLUMN_KEYS.forEach(function(k) {
+        if (!(k in columnVisible)) {
+            columnVisible[k] = (k !== 'created');
+        }
+    });
+    applyColumnVisibility();
+    // Sync checkboxes in the panel
+    COLUMN_KEYS.forEach(function(k) {
+        const cb = document.querySelector('#column-panel input[data-col="' + k + '"]');
+        if (cb) cb.checked = columnVisible[k];
+    });
+}
+
+function applyColumnVisibility() {
+    COLUMN_KEYS.forEach(function(k) {
+        const cells = document.querySelectorAll('[data-col="' + k + '"]');
+        cells.forEach(function(c) {
+            c.style.display = columnVisible[k] ? '' : 'none';
+        });
+    });
+}
+
+function toggleColumn(checkbox) {
+    const k = checkbox.getAttribute('data-col');
+    columnVisible[k] = checkbox.checked;
+    try {
+        localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(columnVisible));
+    } catch {}
+    applyColumnVisibility();
+}
+
+function toggleColumnPanel() {
+    const p = document.getElementById('column-panel');
+    if (p) p.style.display = (p.style.display === 'none') ? 'block' : 'none';
+}
+
 // ===== Collapse State Persistence =====
 
 const COLLAPSE_STORAGE_KEY = 'vless2clash_panel_states';
@@ -100,6 +149,7 @@ function showLogin() {
 function showDashboard() {
     document.getElementById('login-view').style.display = 'none';
     document.getElementById('dashboard-view').style.display = 'block';
+    initColumns();
     loadStats();
     loadDailyStats();
     loadRecords();
@@ -306,12 +356,12 @@ function loadRecords() {
             var updateCountClass = (r.update_count >= 5) ? ' class="update-count-high"' : '';
             return '<tr>' +
                 '<td>' + r.id + '</td>' +
-                '<td class="cell-time">' + formatTime(r.created_at) + '</td>' +
-                '<td class="cell-time">' + formatTime(r.updated_at || r.created_at) + '</td>' +
-                '<td class="cell-ip">' + escapeHtml(r.client_ip) + '</td>' +
-                '<td>' + r.node_count + '</td>' +
-                '<td class="cell-token">' + escapeHtml(r.config_name || r.token) + '</td>' +
-                '<td' + updateCountClass + '>' + r.update_count + '</td>' +
+                '<td class="cell-time" data-col="created">' + formatTime(r.created_at) + '</td>' +
+                '<td class="cell-time" data-col="updated">' + formatTime(r.updated_at || r.created_at) + '</td>' +
+                '<td class="cell-ip" data-col="ip">' + escapeHtml(r.client_ip) + '</td>' +
+                '<td data-col="nodes">' + r.node_count + '</td>' +
+                '<td class="cell-token" data-col="name">' + escapeHtml(r.config_name || r.token) + '</td>' +
+                '<td' + updateCountClass + ' data-col="count">' + r.update_count + '</td>' +
                 '<td class="cell-actions">' +
                     '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
                     '<button class="btn btn-small" onclick="copyRecordLink(\'' + escapeAttr(r.token) + '\', this)">复制</button>' +
@@ -321,6 +371,7 @@ function loadRecords() {
                 '</td>' +
             '</tr>';
         }).join('');
+        applyColumnVisibility();
     })
     .catch(function(err) {
         if (err.message !== '未授权') {
