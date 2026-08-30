@@ -94,6 +94,16 @@
                     <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input">
                     <button class="btn btn-small" onclick="loadRecords()">搜索</button>
                     <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
+                    <button class="btn btn-small btn-secondary" onclick="toggleColumnPanel()">列设置</button>
+                    <div id="column-panel" class="column-panel" style="display:none;">
+                        <div class="column-panel-title">显示列</div>
+                        <label><input type="checkbox" data-col="created" onchange="toggleColumn(this)"> 时间</label>
+                        <label><input type="checkbox" data-col="updated" onchange="toggleColumn(this)" checked> 最后更新</label>
+                        <label><input type="checkbox" data-col="ip" onchange="toggleColumn(this)" checked> 客户端IP</label>
+                        <label><input type="checkbox" data-col="nodes" onchange="toggleColumn(this)" checked> 节点数量</label>
+                        <label><input type="checkbox" data-col="name" onchange="toggleColumn(this)" checked> 配置名称</label>
+                        <label><input type="checkbox" data-col="count" onchange="toggleColumn(this)" checked> 更新次数</label>
+                    </div>
                 </div>
 
                 <div class="table-wrapper">
@@ -101,12 +111,12 @@
                         <thead>
                             <tr>
                                 <th style="width:40px;">ID</th>
-                                <th style="width:160px;">时间</th>
-                                <th style="width:160px;">最后更新</th>
-                                <th style="width:130px;">客户端IP</th>
-                                <th style="width:60px;">节点数量</th>
-                                <th style="width:140px;">配置名称</th>
-                                <th style="width:70px;">更新次数</th>
+                                <th style="width:160px;" data-col="created">时间</th>
+                                <th style="width:160px;" data-col="updated">最后更新</th>
+                                <th style="width:130px;" data-col="ip">客户端IP</th>
+                                <th style="width:60px;" data-col="nodes">节点数量</th>
+                                <th style="width:140px;" data-col="name">配置名称</th>
+                                <th style="width:70px;" data-col="count">更新次数</th>
                                 <th style="width:300px;">操作</th>
                             </tr>
                         </thead>
