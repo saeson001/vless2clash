@@ -1228,3 +1228,58 @@ textarea:focus {
 .modal-body .form-group {
     margin-bottom: 14px;
 }
+
+/* ===== AI Smart Routing Picker ===== */
+
+.config-ai .name-hint {
+    grid-column: 1 / -1;
+}
+
+.ai-picker {
+    border: 1px solid #b37feb;
+    background: linear-gradient(135deg, #f9f0ff 0%, #fff 100%);
+}
+
+.ai-picker-desc {
+    margin: 0 0 16px;
+    font-size: 13px;
+    color: #722ed1;
+    line-height: 1.6;
+}
+
+.ai-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.ai-picker-row label {
+    flex: 0 0 220px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+
+.ai-picker-row select {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+    font-size: 13px;
+    background: #fff;
+    color: #333;
+    min-width: 0;
+}
+
+.ai-picker-row select:focus {
+    outline: none;
+    border-color: #722ed1;
+    box-shadow: 0 0 0 2px rgba(114, 46, 209, 0.15);
+}
+
+.ai-picker-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+}
