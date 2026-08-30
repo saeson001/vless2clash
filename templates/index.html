@@ -93,6 +93,14 @@
                             <option value="none">无规则（等同于全局代理）</option>
                         </select>
                     </div>
+                    <div class="config-item config-ai">
+                        <label>AI 智能分流</label>
+                        <select id="cfg-ai-routing">
+                            <option value="off" selected>关闭</option>
+                            <option value="on">开启（国外 AI → 日本，其余 → 香港）</option>
+                        </select>
+                        <span class="name-hint">无法自动判断日本/香港节点时，会在下方让你手动指定</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -150,6 +158,26 @@
                     <h2>错误信息</h2>
                 </div>
                 <div id="error-list" class="error-list"></div>
+            </div>
+        </div>
+
+        <div id="ai-picker" class="card ai-picker" style="display:none;">
+            <div class="card-header">
+                <span class="card-icon">🤖</span>
+                <h2>AI 分流：请指定节点</h2>
+            </div>
+            <p class="ai-picker-desc">无法自动判断日本 / 香港节点，请手动选择（也可都选同一节点）：</p>
+            <div class="ai-picker-row">
+                <label>日本节点（国外 AI 流量走这里）</label>
+                <select id="ai-japan-select"></select>
+            </div>
+            <div class="ai-picker-row">
+                <label>香港节点（其余流量走这里）</label>
+                <select id="ai-hk-select"></select>
+            </div>
+            <div class="ai-picker-actions">
+                <button class="btn btn-primary" onclick="confirmAiRouting()">确认生成</button>
+                <button class="btn btn-secondary" onclick="cancelAiRouting()">取消</button>
             </div>
         </div>
     </div>
