@@ -1,11 +1,19 @@
 #!/bin/bash
 # ============================================================
-# VLESS to Clash YAML 转换工具 - 多发行版部署/更新/卸载脚本
-# 版本: v1.6.12
+# VLESS to Clash YAML 转换工具 - 一键在线安装/更新/卸载脚本
+# 版本: v1.6.13
 # 作者: saeson
+# 仓库: https://github.com/saeson001/vless2clash
+#
 # 支持: Debian 11/12/13, Ubuntu 20.04+, CentOS 7/8/9, RHEL 8/9,
-#       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux
-# 用法:
+#       Rocky Linux, AlmaLinux, Fedora, openSUSE, Arch Linux, Alpine
+#
+# === 一键在线安装（任意新机器） ===
+#   bash <(curl -sL https://raw.githubusercontent.com/saeson001/vless2clash/main/deploy.sh)
+#   或:
+#   curl -sL https://raw.githubusercontent.com/saeson001/vless2clash/main/deploy.sh | sudo bash
+#
+# === 本地脚本用法 ===
 #   交互菜单:   sudo bash deploy.sh
 #   直接部署:   sudo bash deploy.sh install
 #   更新:       sudo bash deploy.sh update
@@ -17,14 +25,112 @@
 
 set -e
 
-VERSION="v1.6.12"
+VERSION="v1.6.13"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
 APP_PORT=5000
 PYTHON_VERSION="python3"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GITHUB_REPO="saeson001/vless2clash"
+GITHUB_RAW_BASE="https://raw.githubusercontent.com/${GITHUB_REPO}/main"
+GITHUB_ZIP_URL="https://github.com/${GITHUB_REPO}/archive/refs/heads/main.zip"
+
+# ============================================================
+# 在线模式检测：脚本是通过管道/URL 执行的（无本地源文件）
+# ============================================================
+is_online_mode() {
+    # /dev/stdin 或 bash 表示管道执行；或 SCRIPT_DIR 下没有 app.py
+    [ "$0" = "/dev/stdin" ] || [ "$0" = "bash" ] || [ "$0" = "-bash" ] || \
+    [ ! -f "${SCRIPT_DIR:-.}/app.py" ]
+}
+
+# ============================================================
+# 从 GitHub 下载最新代码到临时目录
+# ============================================================
+download_from_github() {
+    echo "[下载] 正在从 GitHub 获取最新代码..."
+    command -v unzip >/dev/null 2>&1 || {
+        echo "[依赖] 安装 unzip..."
+        if command -v apt-get &>/dev/null; then apt-get install -y -qq unzip >/dev/null 2>&1
+        elif command -v dnf &>/dev/null; then dnf install -y -q unzip >/dev/null 2>&1
+        elif command -v yum &>/dev/null; then yum install -y -q unzip >/dev/null 2>&1
+        elif command -v zypper &>/dev/null; then zypper --non-interactive --quiet install unzip >/dev/null 2>&1
+        elif command -v pacman &>/dev/null; then pacman --noconfirm --needed -S unzip >/dev/null 2>&1
+        elif command -v apk &>/dev/null; then apk add --quiet unzip >/dev/null 2>&1
+        else
+            echo "[错误] 无法自动安装 unzip，请手动安装后重试"
+            exit 1
+        fi
+    }
+
+    DL_DIR=$(mktemp -d /tmp/v2c_install_XXXXXX)
+    ZIP_FILE="${DL_DIR}/src.zip"
+
+    # 尝试 wget → curl → 报错
+    if command -v wget &>/dev/null; then
+        wget -q --show-progress -O "$ZIP_FILE" "$GITHUB_ZIP_URL" 2>/dev/null || \
+        wget -q -O "$ZIP_FILE" "$GITHUB_ZIP_URL"
+    elif command -v curl &>/dev/null; then
+        curl -sL -o "$ZIP_FILE" "$GITHUB_ZIP_URL" --progress-bar 2>/dev/null || \
+        curl -sL -o "$ZIP_FILE" "$GITHUB_ZIP_URL"
+    else
+        echo "[错误] 需要 wget 或 curl 来下载，请安装其一"
+        exit 1
+    fi
+
+    if [ ! -s "$ZIP_FILE" ]; then
+        echo "[错误] 下载失败（文件为空），请检查网络或 GitHub 地址:"
+        echo "  $GITHUB_ZIP_URL"
+        rm -rf "$DL_DIR"
+        exit 1
+    fi
+
+    # 校验 zip 完整性
+    if ! unzip -tq "$ZIP_FILE" >/dev/null 2>&1; then
+        echo "[错误] 下载的 zip 文件已损坏，请重试"
+        rm -rf "$DL_DIR"
+        exit 1
+    fi
+
+    unzip -qo "$ZIP_FILE" -d "$DL_DIR"
+    # 解压后目录为 vless2clash-main/
+    EXTRACTED_DIR="${DL_DIR}/vless2clash-main"
+    if [ ! -d "$EXTRACTED_DIR" ]; then
+        # 兼容：有些解压工具可能产生不同目录名
+        EXTRACTED_DIR=$(find "$DL_DIR" -maxdepth 1 -type d -name "vless2clash*" | head -1)
+    fi
+
+    if [ ! -f "${EXTRACTED_DIR}/deploy.sh" ]; then
+        echo "[错误] 下载的包不完整（缺少 deploy.sh）"
+        rm -rf "$DL_DIR"
+        exit 1
+    fi
+
+    # 读取远程版本号
+    REMOTE_VER=$(grep -m1 '^VERSION=' "${EXTRACTED_DIR}/deploy.sh" 2>/dev/null | cut -d'"' -f2)
+    if [ -n "$REMOTE_VER" ]; then
+        VERSION="$REMOTE_VER"
+    fi
+
+    echo "  -> 已下载: $VERSION (${EXTRACTED_DIR})"
+    SCRIPT_DIR="$EXTRACTED_DIR"
+}
+
+# ============================================================
+# 脚本目录解析（兼容在线模式）
+# ============================================================
+if is_online_mode; then
+    # 管道模式：SCRIPT_DIR 先设为临时值，后续 download_from_github 会覆盖
+    SCRIPT_DIR="/tmp/v2c_online_$$"
+    mkdir -p "$SCRIPT_DIR"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || true
+# 如果 BASH_SOURCE 不可用（管道模式），使用预设值
+if [ -z "$SCRIPT_DIR" ] || [ ! -d "$SCRIPT_DIR" ]; then
+    SCRIPT_DIR="$(pwd)"
+fi
 
 # ============================================================
 # 操作系统检测
@@ -34,7 +140,6 @@ detect_os() {
         echo "[错误] 无法检测操作系统（缺少 /etc/os-release）"
         exit 1
     fi
-    # Save our VERSION before sourcing os-release (which may define its own VERSION)
     _SAVED_APP_VERSION="$VERSION"
     . /etc/os-release
     VERSION="$_SAVED_APP_VERSION"
@@ -123,13 +228,10 @@ install_system_deps() {
             $PKG_INSTALL python3 python3-venv python3-pip curl wget unzip > /dev/null 2>&1
             ;;
         rhel)
-            # CentOS 7 需要 EPEL 和额外包
             if [ "$OS_ID" = "centos" ] && [[ "$OS_VERSION" == 7* ]]; then
                 $PKG_INSTALL epel-release > /dev/null 2>&1 || true
             fi
             $PKG_INSTALL python3 python3-pip curl wget unzip > /dev/null 2>&1
-            # RHEL 系不需要单独的 venv 包，python3 自带
-            # 但确保 venv 模块可用
             if ! $PYTHON_VERSION -c "import venv" 2>/dev/null; then
                 $PKG_INSTALL python3-devel > /dev/null 2>&1 || true
             fi
@@ -143,7 +245,6 @@ install_system_deps() {
             ;;
         alpine)
             $PKG_INSTALL python3 py3-pip curl wget unzip bash > /dev/null 2>&1
-            # Alpine 需要 ensurepip 来创建 venv
             $PKG_INSTALL py3-virtualenv > /dev/null 2>&1 || true
             ;;
     esac
@@ -304,13 +405,13 @@ do_reset_admin() {
     echo "  ║  密码:   admin123"
     echo "  ╚══════════════════════════════════════╝"
     echo ""
-    echo "  管理后台地址: http://<服务器IP>:${APP_PORT}/manage"
+    echo "  管理后台地址: http:<服务器IP>:${APP_PORT}/manage"
     echo "  ⚠️  请登录后及时修改密码！"
     echo "========================================"
 }
 
 # ============================================================
-# 更新函数
+# 更新函数（支持本地 + 在线）
 # ============================================================
 do_update() {
     if [ ! -d "$APP_DIR" ]; then
@@ -321,32 +422,23 @@ do_update() {
     fi
 
     if [ "$EUID" -ne 0 ]; then
-        echo "[错误] 请使用 root 用户或 sudo 运行此脚本"
+        echo "[错误] 请使用 root 用户或 sudo 运行此命令"
         exit 1
     fi
 
     detect_os
 
-    # v1.6.11: 原地更新支持 - 脚本在 APP_DIR 内直接运行时，先从 GitHub 拉取最新代码
-    # （旧版直接 cp $SCRIPT_DIR/*，在安装目录内运行等于旧文件拷自己）
-    if [ "$(cd "$SCRIPT_DIR" 2>/dev/null && pwd)" = "$APP_DIR" ]; then
-        echo "[0/6] 检测到在安装目录内原地运行，从 GitHub 下载最新代码..."
-        command -v unzip >/dev/null 2>&1 || $PKG_INSTALL unzip > /dev/null 2>&1 || true
-        DL_DIR=$(mktemp -d /tmp/vless2clash_upd_XXXXXX)
-        ZIP_URL="https://github.com/saeson001/vless2clash/archive/refs/heads/main.zip"
-        wget -q -O "${DL_DIR}/src.zip" "$ZIP_URL" 2>/dev/null || \
-            curl -sL -o "${DL_DIR}/src.zip" "$ZIP_URL"
-        if [ -s "${DL_DIR}/src.zip" ] && unzip -tq "${DL_DIR}/src.zip" > /dev/null 2>&1; then
-            unzip -qo "${DL_DIR}/src.zip" -d "$DL_DIR"
-            SCRIPT_DIR="${DL_DIR}/vless2clash-main"
-            REMOTE_VER=$(grep -m1 '^VERSION=' "${SCRIPT_DIR}/deploy.sh" | cut -d'"' -f2)
-            if [ -n "$REMOTE_VER" ]; then
-                VERSION="$REMOTE_VER"
-            fi
-            echo "  -> 最新代码已下载: $VERSION"
-        else
-            echo "  -> [警告] 下载最新代码失败，将使用本地文件继续（可能不是最新版）"
-        fi
+    # 在线模式 or 在安装目录内原地运行 → 从 GitHub 下载
+    _NEED_DOWNLOAD=false
+    if is_online_mode; then
+        _NEED_DOWNLOAD=true
+    elif [ "$(cd "$SCRIPT_DIR" 2>/dev/null && pwd)" = "$APP_DIR" ]; then
+        _NEED_DOWNLOAD=true
+    fi
+
+    if $_NEED_DOWNLOAD; then
+        echo "[0/6] 从 GitHub 下载最新代码..."
+        download_from_github
     fi
 
     echo "========================================"
@@ -376,7 +468,6 @@ do_update() {
     echo "[3/6] 更新应用文件..."
     cp -r "$SCRIPT_DIR"/app.py "$SCRIPT_DIR"/templates "$SCRIPT_DIR"/static "$SCRIPT_DIR"/requirements.txt "$SCRIPT_DIR"/deploy.sh "$APP_DIR/"
     mkdir -p "$APP_DIR/downloads" "$APP_DIR/data"
-    # Preserve existing database and admin config (do not overwrite)
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
     echo "  -> 应用文件已更新"
 
@@ -421,7 +512,6 @@ do_update() {
     echo "    systemctl restart $APP_NAME"
     echo ""
 
-    # Display admin credentials
     echo "  ────────────────────────────────────────"
     echo "  管理后台:  http://<服务器IP>:${APP_PORT}/manage"
     if [ -f "${APP_DIR}/data/admin_config.json" ]; then
@@ -445,7 +535,7 @@ do_update() {
 }
 
 # ============================================================
-# 部署函数
+# 部署函数（全新安装 + 在线安装）
 # ============================================================
 do_install() {
     echo "========================================"
@@ -455,11 +545,18 @@ do_install() {
     echo ""
 
     if [ "$EUID" -ne 0 ]; then
-        echo "[错误] 请使用 root 用户或 sudo 运行此脚本"
+        echo "[错误] 请使用 root 用户或 sudo 运行此命令"
         exit 1
     fi
 
     detect_os
+
+    # 在线模式：先下载
+    if is_online_mode; then
+        echo "[0/8] 在线模式：从 GitHub 下载最新代码..."
+        download_from_github
+        echo ""
+    fi
 
     echo "[1/7] 安装系统依赖..."
     install_system_deps
@@ -535,7 +632,6 @@ EOF
     echo "  登录后请立即修改密码！"
     echo "  ────────────────────────────────────────"
 
-    # Display admin credentials if available
     sleep 3
     if [ -f "${APP_DIR}/data/admin_config.json" ]; then
         echo ""
@@ -674,11 +770,21 @@ case "$1" in
         do_reset_admin
         ;;
     "")
-        show_menu
+        # 无参数：交互式菜单（在线模式下默认走安装）
+        if is_online_mode && [ ! -d "$APP_DIR" ]; then
+            echo "[在线模式] 检测到未安装，自动开始一键部署..."
+            echo ""
+            do_install
+        else
+            show_menu
+        fi
         ;;
     *)
         echo "用法: $0 {install|update|uninstall|version|show-admin|reset-admin}"
         echo "  或直接运行 $0 进入交互菜单"
+        echo ""
+        echo "  一键在线安装:"
+        echo "    bash <(curl -sL https://raw.githubusercontent.com/saeson001/vless2clash/main/deploy.sh)"
         exit 1
         ;;
 esac
