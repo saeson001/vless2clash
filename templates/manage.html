@@ -83,6 +83,85 @@
                 </div>
             </div>
 
+            <!-- Global Config (总体配置) -->
+            <div class="card" id="global-config-card">
+                <div class="card-header">
+                    <span class="card-icon">🎛️</span>
+                    <h2>总体配置（全局默认值）</h2>
+                    <span class="name-hint">修改后「保存」仅存入后台；「保存并应用到所有 Token」会按此配置重新生成所有订阅</span>
+                </div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label>AI 智能分流</label>
+                        <select id="gc-ai-routing">
+                            <option value="false">关闭</option>
+                            <option value="true">开启</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>AI 节点偏好</label>
+                        <select id="gc-ai-preference">
+                            <option value="jp_hk">AI→日本优先 / 默认→香港优先</option>
+                            <option value="hk_jp">AI→香港优先 / 默认→日本优先</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>分流规则</label>
+                        <select id="gc-rules-mode">
+                            <option value="basic">基础（内置国内直连）</option>
+                            <option value="remote">完整（远程 Loyalsoldier）</option>
+                            <option value="none">无规则（等同于全局代理）</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>策略组名称</label>
+                        <input type="text" id="gc-group-name" value="节点选择">
+                    </div>
+                    <div class="config-item">
+                        <label>混合端口</label>
+                        <input type="number" id="gc-port" value="7890">
+                    </div>
+                    <div class="config-item">
+                        <label>允许局域网</label>
+                        <select id="gc-allow-lan">
+                            <option value="true">是</option>
+                            <option value="false">否</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>日志级别</label>
+                        <select id="gc-log-level">
+                            <option value="info">info</option>
+                            <option value="debug">debug</option>
+                            <option value="warning">warning</option>
+                            <option value="error">error</option>
+                            <option value="silent">silent</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>健康检查 URL</label>
+                        <input type="text" id="gc-hc-url" value="https://cp.cloudflare.com/digest204">
+                    </div>
+                    <div class="config-item">
+                        <label>检查间隔(秒)</label>
+                        <input type="number" id="gc-hc-interval" value="300">
+                    </div>
+                    <div class="config-item">
+                        <label>容差(ms)</label>
+                        <input type="number" id="gc-hc-tolerance" value="50">
+                    </div>
+                    <div class="config-item">
+                        <label>超时(ms)</label>
+                        <input type="number" id="gc-hc-timeout" value="5000">
+                    </div>
+                </div>
+                <div class="modal-actions" style="margin-top:12px;">
+                    <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)">💾 保存</button>
+                    <button class="btn btn-refresh" id="gc-apply-btn" onclick="saveGlobalConfig(true)">🚀 保存并应用到所有 Token</button>
+                    <span id="gc-status" class="login-error" style="display:none;"></span>
+                </div>
+            </div>
+
             <!-- Records Table (top priority) -->
             <div class="card">
                 <div class="card-header">

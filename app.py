@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.17"
+APP_VERSION = "v1.6.18"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -78,6 +78,75 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 # Admin config file
 ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "admin_config.json")
+
+# Admin global config file — shared defaults applied to every new subscription
+# and to every token when the admin clicks "保存并应用到所有 Token".
+GLOBAL_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "global_config.json")
+
+# Default global config. All keys are safe to expose publicly (no secrets).
+DEFAULT_GLOBAL_CONFIG = {
+    "ai_routing": False,        # master switch for AI 智能分流
+    "ai_preference": "jp_hk",   # "jp_hk" = AI→日本优先 / 默认→香港优先; "hk_jp" = 反过来
+    "rules_mode": "basic",      # basic | remote | none
+    "group_name": "节点选择",
+    "port": 7890,
+    "allow_lan": True,
+    "log_level": "info",
+    # Health-check used by fallback proxy groups (node failover)
+    "hc_url": "https://cp.cloudflare.com/digest204",
+    "hc_interval": 300,
+    "hc_tolerance": 50,
+    "hc_timeout": 5000,
+}
+
+
+def load_global_config():
+    """Load global config, falling back to defaults for missing keys."""
+    try:
+        with open(GLOBAL_CONFIG_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return dict(DEFAULT_GLOBAL_CONFIG)
+    merged = dict(DEFAULT_GLOBAL_CONFIG)
+    for k, v in data.items():
+        if k in DEFAULT_GLOBAL_CONFIG:
+            merged[k] = v
+    return merged
+
+
+def save_global_config(cfg):
+    """Persist provided keys (validated against DEFAULT_GLOBAL_CONFIG) to disk."""
+    merged = dict(DEFAULT_GLOBAL_CONFIG)
+    for k, v in (cfg or {}).items():
+        if k in DEFAULT_GLOBAL_CONFIG:
+            merged[k] = v
+    # Coerce types to match defaults so downstream code stays simple
+    merged["ai_routing"] = bool(merged["ai_routing"])
+    merged["allow_lan"] = bool(merged["allow_lan"])
+    merged["port"] = int(merged["port"] or 7890)
+    merged["hc_interval"] = int(merged["hc_interval"] or 300)
+    merged["hc_tolerance"] = int(merged["hc_tolerance"] or 50)
+    merged["hc_timeout"] = int(merged["hc_timeout"] or 5000)
+    os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
+    with open(GLOBAL_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(merged, f, ensure_ascii=False, indent=2)
+    return merged
+
+
+def global_basic_config(gcfg):
+    """Extract the basic + health-check keys consumed by generate_clash_yaml."""
+    return {
+        "port": gcfg["port"],
+        "allow_lan": gcfg["allow_lan"],
+        "log_level": gcfg["log_level"],
+        "group_name": gcfg["group_name"],
+        "rules_mode": gcfg["rules_mode"],
+        "ai_preference": gcfg["ai_preference"],
+        "hc_url": gcfg["hc_url"],
+        "hc_interval": gcfg["hc_interval"],
+        "hc_tolerance": gcfg["hc_tolerance"],
+        "hc_timeout": gcfg["hc_timeout"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1072,10 +1141,14 @@ def generate_clash_yaml(proxies, config=None):
     # Health-check used by fallback groups for automatic node failover
     # (e.g. Hong Kong VPS traffic exhausted -> auto switch to Japan). The test
     # traffic goes THROUGH the proxy node, so an overseas URL is fine from CN.
-    HC_URL = "https://cp.cloudflare.com/digest204"
-    HC_INTERVAL = 300
-    HC_TOLERANCE = 50
-    HC_TIMEOUT = 5000
+    hc_url = config.get("hc_url", "https://cp.cloudflare.com/digest204")
+    hc_interval = config.get("hc_interval", 300)
+    hc_tolerance = config.get("hc_tolerance", 50)
+    hc_timeout = config.get("hc_timeout", 5000)
+    HC_URL = hc_url
+    HC_INTERVAL = hc_interval
+    HC_TOLERANCE = hc_tolerance
+    HC_TIMEOUT = hc_timeout
 
     lines.append("proxy-groups:")
     # Manual select group (user override) — always available
@@ -1088,24 +1161,34 @@ def generate_clash_yaml(proxies, config=None):
     lines.append("")
 
     if ai_routing:
-        # 默认分流: Hong Kong preferred, Japan as backup, then others, DIRECT.
-        # fallback type => use the first node that passes the health check, in order.
+        # ai_preference decides which region is prioritized in each group:
+        #   "jp_hk" (default): 默认分流→香港优先, AI分流→日本优先
+        #   "hk_jp"           : 默认分流→日本优先, AI分流→香港优先
+        ai_pref = config.get("ai_preference", "jp_hk")
+        if ai_pref == "hk_jp":
+            default_first, default_second = ai_japan, ai_hongkong   # 默认→日本优先
+            ai_first, ai_second = ai_hongkong, ai_japan             # AI→香港优先
+        else:
+            default_first, default_second = ai_hongkong, ai_japan   # 默认→香港优先
+            ai_first, ai_second = ai_japan, ai_hongkong             # AI→日本优先
+
+        # 默认分流 group (fallback type => first node that passes the health check)
         default_members = []
-        if ai_hongkong:
-            default_members.append(ai_hongkong)
-        if ai_japan:
-            default_members.append(ai_japan)
+        if default_first:
+            default_members.append(default_first)
+        if default_second:
+            default_members.append(default_second)
         for p in proxies:
             if p["name"] not in default_members:
                 default_members.append(p["name"])
         default_members.append("DIRECT")
 
-        # AI分流: Japan preferred, Hong Kong as backup (AI services route via JP).
+        # AI 分流 group
         ai_members = []
-        if ai_japan:
-            ai_members.append(ai_japan)
-        if ai_hongkong:
-            ai_members.append(ai_hongkong)
+        if ai_first:
+            ai_members.append(ai_first)
+        if ai_second:
+            ai_members.append(ai_second)
         for p in proxies:
             if p["name"] not in ai_members:
                 ai_members.append(p["name"])
@@ -1422,6 +1505,33 @@ def version():
     return jsonify({"version": APP_VERSION})
 
 
+@app.route("/api/global-config-public")
+def global_config_public():
+    """Expose non-sensitive global defaults so the generate page can prefill."""
+    g = load_global_config()
+    return jsonify({
+        "ai_routing": g["ai_routing"],
+        "ai_preference": g["ai_preference"],
+        "rules_mode": g["rules_mode"],
+        "group_name": g["group_name"],
+        "port": g["port"],
+        "allow_lan": g["allow_lan"],
+        "log_level": g["log_level"],
+    })
+
+
+@app.route("/api/admin/global-config", methods=["GET", "POST"])
+def admin_global_config():
+    """Read or update the global config (总体配置)."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+    if request.method == "GET":
+        return jsonify(load_global_config())
+    data = request.get_json(silent=True) or {}
+    saved = save_global_config(data)
+    return jsonify({"success": True, "config": saved})
+
+
 @app.route("/api/convert", methods=["POST"])
 def convert():
     data = request.get_json()
@@ -1430,8 +1540,17 @@ def convert():
 
     raw_links = data.get("links", "").strip()
     sub_urls = data.get("subscriptions", "").strip()
-    config = data.get("config", {})
+    config = data.get("config", {}) or {}
     custom_name = data.get("config_name", "").strip()
+
+    # Inherit global config defaults so every new subscription uses the admin's
+    # 总体配置 (basic settings + health-check + AI preference). The page may still
+    # override per-generation; AI on/off + node names come from the request below.
+    gcfg = load_global_config()
+    for key in ("port", "allow_lan", "log_level", "group_name", "rules_mode",
+                "ai_preference", "hc_url", "hc_interval", "hc_tolerance", "hc_timeout"):
+        if key not in config or config.get(key) in (None, ""):
+            config[key] = gcfg.get(key)
 
     proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
 
@@ -1967,11 +2086,15 @@ def admin_refresh_record(record_id):
         conn.close()
         return jsonify({"error": error_msg}), 400
 
-    # Regenerate YAML with new rules (AI routing preserved)
-    yaml_content = generate_clash_yaml(
-        proxies,
-        {"rules_mode": rules_mode, "ai_routing": ai_routing, "ai_japan": ai_japan, "ai_hongkong": ai_hongkong}
-    )
+    # Regenerate YAML with new rules (AI routing preserved). Basic + health-check
+    # settings are pulled from the global config so every token stays consistent.
+    gcfg = load_global_config()
+    single_cfg = global_basic_config(gcfg)
+    single_cfg["rules_mode"] = rules_mode
+    single_cfg["ai_routing"] = ai_routing
+    single_cfg["ai_japan"] = ai_japan
+    single_cfg["ai_hongkong"] = ai_hongkong
+    yaml_content = generate_clash_yaml(proxies, single_cfg)
 
     # Overwrite file on disk
     filepath = os.path.join(DOWNLOADS_DIR, filename)
@@ -2017,7 +2140,11 @@ def admin_refresh_all_records():
         return jsonify({"error": "未授权"}), 401
 
     data = request.get_json(silent=True) or {}
-    rules_mode = data.get("rules_mode", "basic")
+    # NOTE: refresh-all now follows the global config (总体配置) as the
+    # regeneration policy. The legacy per-call `rules_mode` override is ignored
+    # in favour of the admin's global settings.
+    gcfg = load_global_config()
+    basic_cfg = global_basic_config(gcfg)
 
     conn = get_db()
     rows = conn.execute("SELECT * FROM conversion_records").fetchall()
@@ -2038,30 +2165,30 @@ def admin_refresh_all_records():
             if not proxies:
                 skipped.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
-            # Force-enable AI smart routing on every record when both a Japan
-            # and a Hong Kong node can be identified.
-            cls = classify_region_nodes(proxies)
-            if cls["japan"] and cls["hongkong"]:
-                ai_routing = True
-                ai_japan = cls["japan"][0]
-                ai_hongkong = cls["hongkong"][0]
-            else:
-                ai_routing = False
-                ai_japan = ""
-                ai_hongkong = ""
-                skipped.append({
-                    "id": record_id,
-                    "error": "找不到日本/香港节点，未启用 AI 分流（保留原分流）",
-                })
-            yaml_content = generate_clash_yaml(
-                proxies,
-                {
-                    "rules_mode": rules_mode,
-                    "ai_routing": ai_routing,
-                    "ai_japan": ai_japan,
-                    "ai_hongkong": ai_hongkong,
-                }
-            )
+
+            # Apply the global config policy. AI node names are re-detected per
+            # record (or kept from the stored assignment if still valid).
+            cfg = dict(basic_cfg)
+            cfg["ai_routing"] = False
+            cfg["ai_japan"] = ""
+            cfg["ai_hongkong"] = ""
+            if gcfg["ai_routing"]:
+                names = {p["name"] for p in proxies}
+                stored_jp = row["ai_japan"] if (row.get("ai_japan") in names) else ""
+                stored_hk = row["ai_hongkong"] if (row.get("ai_hongkong") in names) else ""
+                cls = classify_region_nodes(proxies)
+                ai_japan = stored_jp or (cls["japan"][0] if cls["japan"] else "")
+                ai_hongkong = stored_hk or (cls["hongkong"][0] if cls["hongkong"] else "")
+                if ai_japan and ai_hongkong:
+                    cfg["ai_routing"] = True
+                    cfg["ai_japan"] = ai_japan
+                    cfg["ai_hongkong"] = ai_hongkong
+                else:
+                    skipped.append({
+                        "id": record_id,
+                        "error": "全局已开启 AI 分流，但此记录找不到日本/香港节点，已按非 AI 重算",
+                    })
+            yaml_content = generate_clash_yaml(proxies, cfg)
             filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(yaml_content)
@@ -2070,11 +2197,11 @@ def admin_refresh_all_records():
                    SET yaml_content = ?, node_count = ?, ai_routing = ?, ai_japan = ?,
                        ai_hongkong = ?, updated_at = ?
                    WHERE id = ?""",
-                (yaml_content, len(proxies), 1 if ai_routing else 0,
-                 ai_japan, ai_hongkong, now, record_id)
+                (yaml_content, len(proxies), 1 if cfg["ai_routing"] else 0,
+                 cfg["ai_japan"], cfg["ai_hongkong"], now, record_id)
             )
             success += 1
-            if ai_routing:
+            if cfg["ai_routing"]:
                 ai_enabled += 1
         except Exception as e:  # noqa: BLE001 - keep batch going on single failure
             skipped.append({"id": record_id, "error": str(e)[:100]})
@@ -2082,7 +2209,7 @@ def admin_refresh_all_records():
     conn.commit()
     conn.close()
 
-    msg = f"已批量刷新 {success} 条记录（{rules_mode} 模式，其中 {ai_enabled} 条已启用 AI 分流）"
+    msg = f"已批量刷新 {success} 条记录（{gcfg['rules_mode']} 模式，其中 {ai_enabled} 条已启用 AI 分流）"
     if skipped:
         msg += f"，{len(skipped)} 条跳过（ID: "
         msg += ", ".join(str(s["id"]) for s in skipped) + "）"
@@ -2093,7 +2220,7 @@ def admin_refresh_all_records():
         "refreshed": success,
         "ai_enabled": ai_enabled,
         "skipped": skipped,
-        "rules_mode": rules_mode,
+        "rules_mode": gcfg["rules_mode"],
     })
 
 

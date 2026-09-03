@@ -11,6 +11,25 @@
         .catch(() => {});
 })();
 
+// Prefill config options from the server's global config defaults (总体配置)
+(function loadGlobalDefaults() {
+    fetch('/api/global-config-public')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var setVal = function(id, val) {
+                var el = document.getElementById(id);
+                if (el && val !== undefined && val !== null) el.value = val;
+            };
+            setVal('cfg-ai-routing', d.ai_routing ? 'on' : 'off');
+            setVal('cfg-rules-mode', d.rules_mode);
+            setVal('cfg-group-name', d.group_name);
+            setVal('cfg-port', d.port);
+            setVal('cfg-allow-lan', d.allow_lan ? 'true' : 'false');
+            setVal('cfg-log-level', d.log_level);
+        })
+        .catch(function() {});
+})();
+
 function toggleSubscription() {
     const section = document.getElementById('subscription-section');
     const arrow = document.getElementById('sub-arrow');

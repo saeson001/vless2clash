@@ -125,6 +125,126 @@ function applyStoredCollapseStates(callback) {
     }
 })();
 
+// ===== Global Config (总体配置) =====
+
+function loadGlobalConfig() {
+    fetch('/api/admin/global-config', { credentials: 'same-origin' })
+        .then(function(r) {
+            if (r.status === 401) { showLogin(); return null; }
+            return r.json();
+        })
+        .then(function(cfg) {
+            if (!cfg) return;
+            setGlobalConfigField('gc-ai-routing', cfg.ai_routing ? 'true' : 'false');
+            setGlobalConfigField('gc-ai-preference', cfg.ai_preference || 'jp_hk');
+            setGlobalConfigField('gc-rules-mode', cfg.rules_mode || 'basic');
+            setGlobalConfigField('gc-group-name', cfg.group_name || '节点选择');
+            setGlobalConfigField('gc-port', cfg.port != null ? cfg.port : 7890);
+            setGlobalConfigField('gc-allow-lan', cfg.allow_lan ? 'true' : 'false');
+            setGlobalConfigField('gc-log-level', cfg.log_level || 'info');
+            setGlobalConfigField('gc-hc-url', cfg.hc_url || 'https://cp.cloudflare.com/digest204');
+            setGlobalConfigField('gc-hc-interval', cfg.hc_interval != null ? cfg.hc_interval : 300);
+            setGlobalConfigField('gc-hc-tolerance', cfg.hc_tolerance != null ? cfg.hc_tolerance : 50);
+            setGlobalConfigField('gc-hc-timeout', cfg.hc_timeout != null ? cfg.hc_timeout : 5000);
+        })
+        .catch(function() {});
+}
+
+function setGlobalConfigField(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.value = value;
+}
+
+function saveGlobalConfig(applyAll) {
+    var payload = {
+        ai_routing: document.getElementById('gc-ai-routing').value === 'true',
+        ai_preference: document.getElementById('gc-ai-preference').value,
+        rules_mode: document.getElementById('gc-rules-mode').value,
+        group_name: document.getElementById('gc-group-name').value || '节点选择',
+        port: parseInt(document.getElementById('gc-port').value) || 7890,
+        allow_lan: document.getElementById('gc-allow-lan').value === 'true',
+        log_level: document.getElementById('gc-log-level').value,
+        hc_url: document.getElementById('gc-hc-url').value.trim(),
+        hc_interval: parseInt(document.getElementById('gc-hc-interval').value) || 300,
+        hc_tolerance: parseInt(document.getElementById('gc-hc-tolerance').value) || 50,
+        hc_timeout: parseInt(document.getElementById('gc-hc-timeout').value) || 5000
+    };
+    var saveBtn = document.getElementById('gc-save-btn');
+    var applyBtn = document.getElementById('gc-apply-btn');
+    var statusEl = document.getElementById('gc-status');
+    if (saveBtn) saveBtn.disabled = true;
+    if (applyBtn) applyBtn.disabled = true;
+    if (statusEl) statusEl.style.display = 'none';
+    fetch('/api/admin/global-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) {
+        if (r.status === 401) { showLogin(); throw new Error('未授权'); }
+        return r.json();
+    })
+    .then(function(data) {
+        if (!data.success) throw new Error(data.error || '保存失败');
+        if (applyAll) {
+            applyGlobalConfigToAll();
+        } else {
+            alert('总体配置已保存');
+            if (saveBtn) saveBtn.disabled = false;
+            if (applyBtn) applyBtn.disabled = false;
+        }
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权' && statusEl) {
+            statusEl.textContent = '保存失败：' + err.message;
+            statusEl.style.display = 'block';
+        }
+        if (saveBtn) saveBtn.disabled = false;
+        if (applyBtn) applyBtn.disabled = false;
+    });
+}
+
+function applyGlobalConfigToAll() {
+    if (!confirm('确定要将当前总体配置应用到【所有】订阅 Token 吗？\n\n将按此配置重新生成每一个 Token 的 YAML（AI 分流按各订阅内的日本/香港节点自动选择，token 不变）。')) {
+        var saveBtn = document.getElementById('gc-save-btn');
+        var applyBtn = document.getElementById('gc-apply-btn');
+        if (saveBtn) saveBtn.disabled = false;
+        if (applyBtn) applyBtn.disabled = false;
+        return;
+    }
+    var applyBtn = document.getElementById('gc-apply-btn');
+    if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = '应用全部中...'; }
+    fetch('/api/admin/records/refresh-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ source: 'global-config' })
+    })
+    .then(function(r) {
+        if (r.status === 401) { showLogin(); throw new Error('未授权'); }
+        return r.json();
+    })
+    .then(function(data) {
+        if (data.success) {
+            loadRecords();
+            loadStats();
+            alert(data.message || '已全部应用');
+        } else {
+            alert('应用失败：' + (data.error || '未知错误'));
+        }
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权') alert('网络错误：' + err.message);
+    })
+    .finally(function() {
+        var saveBtn = document.getElementById('gc-save-btn');
+        var aBtn = document.getElementById('gc-apply-btn');
+        if (saveBtn) saveBtn.disabled = false;
+        if (aBtn) { aBtn.disabled = false; aBtn.textContent = '🚀 保存并应用到所有 Token'; }
+    });
+}
+
 // ===== View Switching =====
 
 function showLogin() {
@@ -153,6 +273,7 @@ function showDashboard() {
     loadStats();
     loadDailyStats();
     loadRecords();
+    loadGlobalConfig();
     // Apply stored collapse states after a short delay
     // to ensure panels exist in DOM
     setTimeout(function() {
@@ -691,7 +812,7 @@ function closeRefreshModal() {
 }
 
 function refreshAllRecords() {
-    if (!confirm('确定要对列表中【所有】配置执行一键全部更新吗？\n\n· 同时含日本+香港节点的记录：强制启用 AI 智能分流\n· 其余记录：按各自原有设置重算\n· YAML 内容与「最后更新」时间都会刷新（token 不变）')) {
+    if (!confirm('确定要对列表中【所有】配置执行一键全部更新吗？\n\n· 将按后台「总体配置」重新生成每个 Token 的 YAML\n· 全局 AI 分流开启时：含日本+香港节点的记录自动启用 AI 分流\n· YAML 内容与「最后更新」时间都会刷新（token 不变）')) {
         return;
     }
     var btn = document.getElementById('refresh-all-btn');

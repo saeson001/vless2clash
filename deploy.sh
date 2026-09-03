@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 # VLESS to Clash YAML 转换工具 - 一键在线安装/更新/卸载脚本
-# 版本: v1.6.17
+# 版本: v1.6.18
 # 作者: saeson
 # 仓库: https://github.com/saeson001/vless2clash
 #
@@ -25,7 +25,7 @@
 
 set -e
 
-VERSION="v1.6.17"
+VERSION="v1.6.18"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
