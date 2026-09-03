@@ -63,7 +63,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.16"
+APP_VERSION = "v1.6.17"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1072,7 +1072,7 @@ def generate_clash_yaml(proxies, config=None):
     # Health-check used by fallback groups for automatic node failover
     # (e.g. Hong Kong VPS traffic exhausted -> auto switch to Japan). The test
     # traffic goes THROUGH the proxy node, so an overseas URL is fine from CN.
-    HC_URL = "https://www.gstatic.com/generate_204"
+    HC_URL = "https://cp.cloudflare.com/digest204"
     HC_INTERVAL = 300
     HC_TOLERANCE = 50
     HC_TIMEOUT = 5000
