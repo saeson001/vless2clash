@@ -1097,23 +1097,143 @@ function saveYaml() {
     });
 }
 
-// YAML editor wiring: gutter sync + Tab inserts 2 spaces (attach once)
+// ===== Global Template (总体配置) Editor =====
+
+function showGtEditor() {
+    fetch('/api/admin/global-template', { credentials: 'same-origin' })
+    .then(function(r) {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
+    .then(function(data) {
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        var ta = document.getElementById('gt-text');
+        ta.value = data.template || '';
+        var status = document.getElementById('gt-status');
+        status.textContent = '';
+        status.className = 'yaml-status';
+        document.getElementById('gt-save-btn').disabled = false;
+        document.getElementById('gt-apply-btn').disabled = false;
+        document.getElementById('gt-modal').style.display = 'flex';
+        updateGtGutter();
+        ta.scrollTop = 0;
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权') {
+            alert('加载总体配置模板失败');
+        }
+    });
+}
+
+function closeGtModal() {
+    document.getElementById('gt-modal').style.display = 'none';
+}
+
+function updateGtGutter() {
+    var ta = document.getElementById('gt-text');
+    var gutter = document.getElementById('gt-gutter');
+    var lines = ta.value.split('\n').length;
+    var out = [];
+    for (var i = 1; i <= lines; i++) out.push(i);
+    gutter.textContent = out.join('\n');
+    gutter.scrollTop = ta.scrollTop;
+}
+
+function saveGlobalTemplate(applyAll) {
+    var ta = document.getElementById('gt-text');
+    var status = document.getElementById('gt-status');
+    var saveBtn = document.getElementById('gt-save-btn');
+    var applyBtn = document.getElementById('gt-apply-btn');
+    saveBtn.disabled = true;
+    applyBtn.disabled = true;
+    status.textContent = '保存中…';
+    status.className = 'yaml-status';
+
+    fetch('/api/admin/global-template', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: ta.value })
+    })
+    .then(function(r) {
+        return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+    })
+    .then(function(res) {
+        if (!res.ok || res.d.error) {
+            saveBtn.disabled = false;
+            applyBtn.disabled = false;
+            status.textContent = res.d.error || '保存失败';
+            status.className = 'yaml-status yaml-status-err';
+            return null;
+        }
+        if (!applyAll) {
+            saveBtn.disabled = false;
+            applyBtn.disabled = false;
+            status.textContent = res.d.message || '已保存';
+            status.className = 'yaml-status yaml-status-ok';
+            return null;
+        }
+        status.textContent = '已保存，正在应用到所有 Token…';
+        return fetch('/api/admin/global-template/apply', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        }).then(function(r) {
+            return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+        });
+    })
+    .then(function(res) {
+        if (!res) return;
+        saveBtn.disabled = false;
+        applyBtn.disabled = false;
+        if (res.ok && !res.d.error) {
+            status.textContent = res.d.message || '已应用到所有记录';
+            status.className = 'yaml-status yaml-status-ok';
+            loadRecords();
+        } else {
+            status.textContent = res.d.error || '应用失败';
+            status.className = 'yaml-status yaml-status-err';
+        }
+    })
+    .catch(function() {
+        saveBtn.disabled = false;
+        applyBtn.disabled = false;
+        status.textContent = '网络错误，操作失败';
+        status.className = 'yaml-status yaml-status-err';
+    });
+}
+
+// Editor wiring: gutter sync + Tab inserts 2 spaces (attach once)
 (function() {
     document.addEventListener('DOMContentLoaded', function() {
-        var ta = document.getElementById('yaml-text');
-        if (!ta) return;
-        ta.addEventListener('scroll', function() {
-            document.getElementById('yaml-gutter').scrollTop = ta.scrollTop;
-        });
-        ta.addEventListener('input', updateYamlGutter);
-        ta.addEventListener('keydown', function(e) {
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                var s = ta.selectionStart, epos = ta.selectionEnd;
-                ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(epos);
-                ta.selectionStart = ta.selectionEnd = s + 2;
-                updateYamlGutter();
-            }
+        var pairs = [
+            { text: 'yaml-text', gutter: 'yaml-gutter', updater: updateYamlGutter },
+            { text: 'gt-text', gutter: 'gt-gutter', updater: updateGtGutter }
+        ];
+        pairs.forEach(function(p) {
+            var ta = document.getElementById(p.text);
+            var gutter = document.getElementById(p.gutter);
+            if (!ta || !gutter) return;
+            ta.addEventListener('scroll', function() {
+                gutter.scrollTop = ta.scrollTop;
+            });
+            ta.addEventListener('input', p.updater);
+            ta.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    var s = ta.selectionStart, epos = ta.selectionEnd;
+                    ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(epos);
+                    ta.selectionStart = ta.selectionEnd = s + 2;
+                    p.updater();
+                }
+            });
         });
     });
 })();
@@ -1127,5 +1247,6 @@ document.addEventListener('keydown', function(e) {
         closeEditModal();
         closeRefreshModal();
         closeYamlModal();
+        closeGtModal();
     }
 });

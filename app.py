@@ -65,7 +65,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.20"
+APP_VERSION = "v1.6.21"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -149,6 +149,162 @@ def global_basic_config(gcfg):
         "hc_tolerance": gcfg["hc_tolerance"],
         "hc_timeout": gcfg["hc_timeout"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Global template (v1.6.21): the SHARED part of the generated Clash config,
+# editable as raw YAML in the admin backend and appliable to every token.
+# Per-record `proxies` / `proxy-groups` are always taken from the record itself.
+# Placeholders: {{DEFAULT_GROUP}} / {{AI_GROUP}} resolve per record.
+# ---------------------------------------------------------------------------
+GLOBAL_TEMPLATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "global_template.yaml")
+
+DEFAULT_GLOBAL_TEMPLATE = """\
+# v2c 全局配置模板 —— 所有订阅共享的部分
+# · 这里只写「公共配置」：基础设置、DNS、规则等
+# · 每条记录的 proxies（节点）和 proxy-groups（策略组）会自动保留，不要在这里写
+# · 占位符：{{DEFAULT_GROUP}} = 该记录的主策略组，{{AI_GROUP}} = 该记录的 AI 策略组（没有则等于主策略组）
+# · 编辑完点「保存并应用到所有 Token」，即可一次性铺到全部订阅（token 不变）
+
+mixed-port: 7890
+allow-lan: true
+mode: rule
+log-level: warning
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  fallback:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+      - 0.0.0.0/32
+  fake-ip-filter:
+    - '*.lan'
+    - '*.local'
+    - localhost
+    - '*.localhost'
+    - '*.example'
+    - '*.invalid'
+    - 'time.*.com'
+    - '*.music.163.com'
+    - '*.stun.*.*'
+
+rule-providers:
+  geosite-cn:
+    type: http
+    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat"
+    interval: 86400
+    format: binary
+    behavior: domain
+  geoip-cn:
+    type: http
+    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat"
+    interval: 86400
+    format: binary
+    behavior: ipcidr
+
+rules:
+  - RULE-SET,geosite-cn,DIRECT
+  - RULE-SET,geoip-cn,DIRECT
+  - GEOIP,LAN,DIRECT
+  - GEOIP,PRIVATE,DIRECT
+  - IP-CIDR,5.5.5.5/32,REJECT
+  # 下面这行是「国外 AI 走 AI 策略组」的示例；不需要就删掉
+  # - GEOSITE,openai,{{AI_GROUP}}
+  - MATCH,{{DEFAULT_GROUP}}
+"""
+
+
+def load_global_template():
+    """Return the raw global template text (defaults if never saved)."""
+    try:
+        with open(GLOBAL_TEMPLATE_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    except (FileNotFoundError, OSError):
+        return DEFAULT_GLOBAL_TEMPLATE
+
+
+def save_global_template(text):
+    """Persist the raw global template text."""
+    os.makedirs(os.path.dirname(GLOBAL_TEMPLATE_FILE), exist_ok=True)
+    with open(GLOBAL_TEMPLATE_FILE, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
+# Keys never taken from the template (they are per-record)
+_TEMPLATE_RESERVED_KEYS = ("proxies", "proxy-groups")
+# Keys that must come after proxies / proxy-groups in the output
+_TEMPLATE_TAIL_KEYS = ("rule-providers", "rules")
+
+
+def _tpl_placeholders(value, default_group, ai_group):
+    """Recursively resolve {{DEFAULT_GROUP}} / {{AI_GROUP}} in template values."""
+    if isinstance(value, str):
+        return value.replace("{{DEFAULT_GROUP}}", default_group).replace("{{AI_GROUP}}", ai_group)
+    if isinstance(value, list):
+        return [_tpl_placeholders(v, default_group, ai_group) for v in value]
+    if isinstance(value, dict):
+        return {k: _tpl_placeholders(v, default_group, ai_group) for k, v in value.items()}
+    return value
+
+
+def apply_template_to_record(template_text, record_yaml):
+    """Merge the global template into one record's YAML.
+
+    Returns the regenerated YAML text. The record keeps its own proxies and
+    proxy-groups; everything else comes from the template.
+    """
+    tpl = yaml.safe_load(template_text) or {}
+    if not isinstance(tpl, dict):
+        raise ValueError("模板顶层必须是键值映射")
+
+    doc = yaml.safe_load(record_yaml) or {}
+    if not isinstance(doc, dict):
+        raise ValueError("该记录的 YAML 无法解析，已跳过")
+
+    proxies = doc.get("proxies") or []
+    groups = doc.get("proxy-groups") or []
+    if not proxies:
+        raise ValueError("该记录没有节点（proxies 为空），已跳过")
+
+    # Group names are resolved per record so the rules point at real groups.
+    default_group = "DIRECT"
+    if groups and isinstance(groups[0], dict):
+        default_group = groups[0].get("name") or default_group
+    elif proxies and isinstance(proxies[0], dict):
+        default_group = proxies[0].get("name") or default_group
+    ai_group = default_group
+    if len(groups) > 1 and isinstance(groups[1], dict):
+        ai_group = groups[1].get("name") or default_group
+
+    merged = {}
+    for key, value in tpl.items():
+        if key in _TEMPLATE_RESERVED_KEYS or key in _TEMPLATE_TAIL_KEYS or key == "dns":
+            continue
+        merged[key] = _tpl_placeholders(value, default_group, ai_group)
+    if "dns" in tpl:
+        merged["dns"] = _tpl_placeholders(tpl["dns"], default_group, ai_group)
+    merged["proxies"] = proxies
+    merged["proxy-groups"] = groups
+    for key in _TEMPLATE_TAIL_KEYS:
+        if key in tpl:
+            merged[key] = _tpl_placeholders(tpl[key], default_group, ai_group)
+    if "rules" not in merged:
+        merged["rules"] = []
+
+    return yaml.safe_dump(
+        merged, sort_keys=False, allow_unicode=True, default_flow_style=False, width=4096
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1533,6 +1689,98 @@ def admin_global_config():
     data = request.get_json(silent=True) or {}
     saved = save_global_config(data)
     return jsonify({"success": True, "config": saved})
+
+
+@app.route("/api/admin/global-template", methods=["GET"])
+def admin_global_template_get():
+    """Return the raw global template text for the admin editor."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+    return jsonify({"template": load_global_template()})
+
+
+@app.route("/api/admin/global-template", methods=["POST"])
+def admin_global_template_save():
+    """Validate and save the global template (shared part of the config)."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json(silent=True) or {}
+    template = data.get("template")
+    if template is None or not str(template).strip():
+        return jsonify({"error": "模板内容为空，未保存"}), 400
+    template = str(template).replace("\r\n", "\n")
+
+    try:
+        parsed = yaml.safe_load(template)
+    except yaml.YAMLError as e:
+        return jsonify({"error": "YAML 语法错误，未保存：" + str(e)[:300]}), 400
+    if not isinstance(parsed, dict):
+        return jsonify({"error": "YAML 顶层必须是键值映射，未保存"}), 400
+    reserved = [k for k in _TEMPLATE_RESERVED_KEYS if k in parsed]
+    if reserved:
+        return jsonify({
+            "error": "模板里不能写 " + " / ".join(reserved) +
+                     "（节点与策略组由每条记录各自保留，自动拼装），未保存"
+        }), 400
+    if "rules" not in parsed:
+        return jsonify({"error": "模板缺少 rules 段（没有规则等同于全局代理），未保存"}), 400
+    if not parsed["rules"]:
+        return jsonify({"error": "rules 段为空（没有规则等同于全局代理），未保存"}), 400
+
+    save_global_template(template)
+    return jsonify({"success": True, "message": "总体配置模板已保存"})
+
+
+@app.route("/api/admin/global-template/apply", methods=["POST"])
+def admin_global_template_apply():
+    """Apply the saved global template to every record (token unchanged)."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    template = load_global_template()
+    try:
+        yaml.safe_load(template)  # fail fast on a broken stored template
+    except yaml.YAMLError as e:
+        return jsonify({"error": "已保存的模板有语法错误，未应用：" + str(e)[:200]}), 400
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, filename, yaml_content FROM conversion_records"
+    ).fetchall()
+
+    now = datetime.datetime.now().isoformat()
+    success, skipped = 0, []
+    for row in rows:
+        try:
+            new_yaml = apply_template_to_record(template, row["yaml_content"] or "")
+        except (ValueError, yaml.YAMLError) as e:
+            skipped.append({"id": row["id"], "error": str(e)[:100]})
+            continue
+        try:
+            conn.execute(
+                "UPDATE conversion_records SET yaml_content = ?, updated_at = ? WHERE id = ?",
+                (new_yaml, now, row["id"])
+            )
+            filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
+            with open(filepath, "w", encoding="utf-8", newline="\n") as f:
+                f.write(new_yaml)
+            success += 1
+        except (sqlite3.Error, OSError) as e:
+            skipped.append({"id": row["id"], "error": "写入失败：" + str(e)[:100]})
+
+    conn.commit()
+    conn.close()
+
+    msg = f"总体配置已应用到 {success} 条记录（节点与策略组保留，token 不变）"
+    if skipped:
+        msg += f"，{len(skipped)} 条跳过（ID: " + ", ".join(str(s["id"]) for s in skipped) + "）"
+    return jsonify({
+        "success": True,
+        "message": msg,
+        "applied": success,
+        "skipped": skipped,
+    })
 
 
 @app.route("/api/convert", methods=["POST"])
