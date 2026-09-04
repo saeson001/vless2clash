@@ -1,479 +1,479 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-page-node-id="U4X9zXm3o2pE3crTsXXlcc">
+<head data-page-node-id="p4nYbrN90so8h5b4YelTDT">
+    <meta charset="UTF-8" data-page-node-id="juHpv7WNg8vIdapndmwcog">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="g8zuCWy3bmFNhUg1PYA1lg">
     <title>管理后台 - VLESS to Clash YAML</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
 </head>
-<body>
-    <div class="container manage-container">
+<body data-page-node-id="CeXGocAMt1piRTn6u6asmq">
+    <div class="container manage-container" data-page-node-id="jWkfXAOTAnjjdsQFXJDCd9">
         <!-- Login View -->
-        <div id="login-view" class="admin-login-card" style="display:none;">
-            <div class="login-header">
-                <span class="login-icon">🔐</span>
-                <h1>管理后台</h1>
-                <p class="subtitle">VLESS to Clash YAML 转换工具</p>
-                <span class="version-badge">{{ version }}</span>
+        <div id="login-view" class="admin-login-card" style="display:none;" data-page-node-id="RU2GXKzJ39oEx9YNhqQq34">
+            <div class="login-header" data-page-node-id="dusG45UyU9klOgfYHW4AUR">
+                <span class="login-icon" data-page-node-id="YWRTi8hmFV8kGnVb5Rtvb5">🔐</span>
+                <h1 data-page-node-id="OdK1p2wWThvT9XHtQUthxP">管理后台</h1>
+                <p class="subtitle" data-page-node-id="kogOVu0qxVReG5ilFviS1l">VLESS to Clash YAML 转换工具</p>
+                <span class="version-badge" data-page-node-id="WyQQz4vVw0nNAMyWsOPfve">{{ version }}</span>
             </div>
-            <div class="login-form">
-                <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" id="login-username" placeholder="admin" autocomplete="username">
+            <div class="login-form" data-page-node-id="SviMCowOet9nLuh0cHcqEh">
+                <div class="form-group" data-page-node-id="4Ke1RFzLFMjC3gMXFDN9RY">
+                    <label data-page-node-id="hXqFH2QroD5W2gzik9xzt3">用户名</label>
+                    <input type="text" id="login-username" placeholder="admin" autocomplete="username" data-page-node-id="lK4hR7RtO6bHNwh0Yzsula">
                 </div>
-                <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password">
+                <div class="form-group" data-page-node-id="Q40O7W8lCi4zHN0MRGX7ho">
+                    <label data-page-node-id="S2sCSIHEplBmdmlD9fIykD">密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码" autocomplete="current-password" data-page-node-id="47hQd7incG3o6XGiQW8E74">
                 </div>
-                <button id="login-btn" class="btn btn-primary btn-full" onclick="doLogin()">
-                    <span class="btn-icon">🔑</span> 登录
+                <button id="login-btn" class="btn btn-primary btn-full" onclick="doLogin()" data-page-node-id="eLuA8g9oOINlV3Oeq5ZJ32">
+                    <span class="btn-icon" data-page-node-id="XX3TKxWGeDNUYglt4AhhPb">🔑</span> 登录
                 </button>
-                <div id="login-error" class="login-error" style="display:none;"></div>
+                <div id="login-error" class="login-error" style="display:none;" data-page-node-id="f44raMUiXEXePFoFFdtsoO"></div>
             </div>
-            <div class="login-footer">
-                <a href="/" class="back-link">← 返回转换工具</a>
+            <div class="login-footer" data-page-node-id="ZzUJXnBDibAXwNbfOudARV">
+                <a href="/" class="back-link" data-page-node-id="Y6ELKiMQJ0EIZgTclqNpHQ">← 返回转换工具</a>
             </div>
         </div>
 
         <!-- Dashboard View -->
-        <div id="dashboard-view" style="display:none;">
-            <header class="manage-header">
-                <div class="manage-header-left">
-                    <h1>🔧 管理后台</h1>
-                    <span class="version-badge">{{ version }}</span>
+        <div id="dashboard-view" style="display:none;" data-page-node-id="GgiGdpk95nJHodmKNorhSl">
+            <header class="manage-header" data-page-node-id="k1F9f1pgyGNLnhuINh9UHw">
+                <div class="manage-header-left" data-page-node-id="YHJ1S0PiBD1l6HzoJNFqeH">
+                    <h1 data-page-node-id="Xg9oRTjoc0I9dyf3IL2BI5">🔧 管理后台</h1>
+                    <span class="version-badge" data-page-node-id="OHGGnlhtO8Rjme5Bkp1Hej">{{ version }}</span>
                 </div>
-                <div class="manage-header-right">
-                    <span id="admin-username" class="admin-user-badge"></span>
-                    <button class="btn btn-small" onclick="showChangePassword()">修改密码</button>
-                    <button class="btn btn-small btn-danger" onclick="doLogout()">退出登录</button>
+                <div class="manage-header-right" data-page-node-id="ZhERCZkQ2wvjETByBrTSPh">
+                    <span id="admin-username" class="admin-user-badge" data-page-node-id="kV0lbfFWwcgJ825y3az4CN"></span>
+                    <button class="btn btn-small" onclick="showChangePassword()" data-page-node-id="dWEfHp9IqnBMm8cqtUaq4V">修改密码</button>
+                    <button class="btn btn-small btn-danger" onclick="doLogout()" data-page-node-id="QHhJEhWaopBOhbMcrlO8MO">退出登录</button>
                 </div>
             </header>
 
             <!-- Stats Cards -->
-            <div class="stats-grid" id="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">📊</div>
-                    <div class="stat-value" id="stat-total-records">-</div>
-                    <div class="stat-label">总转换次数</div>
+            <div class="stats-grid" id="stats-grid" data-page-node-id="TqfSRuiqKRPPAwLl3A83NG">
+                <div class="stat-card" data-page-node-id="5dBiz2SeI0IyYE9r19Fd1M">
+                    <div class="stat-icon" data-page-node-id="pl1RQq6WBf1AXrzwIaUkyS">📊</div>
+                    <div class="stat-value" id="stat-total-records" data-page-node-id="gQ4o1E6r4SWfFjGMegcifp">-</div>
+                    <div class="stat-label" data-page-node-id="UMeHeZUx04CVMcKQmDSueu">总转换次数</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🌐</div>
-                    <div class="stat-value" id="stat-total-nodes">-</div>
-                    <div class="stat-label">总节点数</div>
+                <div class="stat-card" data-page-node-id="hHM57BcHZiEHfsrA3JqokK">
+                    <div class="stat-icon" data-page-node-id="a4R7gP1A0BHHmiRokL8qbx">🌐</div>
+                    <div class="stat-value" id="stat-total-nodes" data-page-node-id="MiumVD3BEVMAwDwKQpv5k3">-</div>
+                    <div class="stat-label" data-page-node-id="FaOoUfm7U84Q5oiLYO12AB">总节点数</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🖥</div>
-                    <div class="stat-value" id="stat-unique-ips">-</div>
-                    <div class="stat-label">独立 IP 数</div>
+                <div class="stat-card" data-page-node-id="BsQCAZxjIbQoh0Giq2wBnU">
+                    <div class="stat-icon" data-page-node-id="F9GJoJB5mEHArZTW3bF6SX">🖥</div>
+                    <div class="stat-value" id="stat-unique-ips" data-page-node-id="pkq4jSBNQwljGUJmPXif5J">-</div>
+                    <div class="stat-label" data-page-node-id="EbhqGIC45oCSxVd2YgMICz">独立 IP 数</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon">⏰</div>
-                    <div class="stat-value" id="stat-recent-24h">-</div>
-                    <div class="stat-label">近 24 小时</div>
+                <div class="stat-card" data-page-node-id="MIBhEKnv1c0xGp0UzJqD2Z">
+                    <div class="stat-icon" data-page-node-id="EpWmwiMiD3ZP5papesVva0">⏰</div>
+                    <div class="stat-value" id="stat-recent-24h" data-page-node-id="mzVhuQmhzVC07KeigksnHw">-</div>
+                    <div class="stat-label" data-page-node-id="ExHVvuAdiQ1IBH4RZGK10E">近 24 小时</div>
                 </div>
-                <div class="stat-card stat-card-highlight">
-                    <div class="stat-icon">📅</div>
-                    <div class="stat-value" id="stat-today-count">-</div>
-                    <div class="stat-label">今日更新次数</div>
+                <div class="stat-card stat-card-highlight" data-page-node-id="apBsz7yqX5Uo6caeOY5Xu0">
+                    <div class="stat-icon" data-page-node-id="FDpOeFRJAu0VeRtHYJ1oif">📅</div>
+                    <div class="stat-value" id="stat-today-count" data-page-node-id="drHbbNhCHqT7Y6bo2QKE4T">-</div>
+                    <div class="stat-label" data-page-node-id="ucVJhHwlorE3X1ikGdgp6s">今日更新次数</div>
                 </div>
-                <div class="stat-card stat-card-highlight">
-                    <div class="stat-icon">📈</div>
-                    <div class="stat-value" id="stat-week-count">-</div>
-                    <div class="stat-label">本周更新次数</div>
+                <div class="stat-card stat-card-highlight" data-page-node-id="uzq6nu7si0o6Drc7bNCJcu">
+                    <div class="stat-icon" data-page-node-id="Y16hub08N5Z3V417TVfcNp">📈</div>
+                    <div class="stat-value" id="stat-week-count" data-page-node-id="0QAEY0LnmMwgZoonkfxX9Q">-</div>
+                    <div class="stat-label" data-page-node-id="quyEKjCEZX1FBQrIHmGHF6">本周更新次数</div>
                 </div>
             </div>
 
             <!-- Global Config (总体配置) -->
-            <div class="card" id="global-config-card">
-                <div class="card-header">
-                    <span class="card-icon">🎛️</span>
-                    <h2>总体配置（全局默认值）</h2>
-                    <span class="name-hint">修改后「保存」仅存入后台；「保存并应用到所有 Token」会按此配置重新生成所有订阅</span>
+            <div class="card" id="global-config-card" data-page-node-id="BWMS6DzzRE9rz9jNMfABBd">
+                <div class="card-header" data-page-node-id="HotlpFGXMUdITSbAgKFxjt">
+                    <span class="card-icon" data-page-node-id="KMFdE5tH8VSGA08ZLHI7ai">🎛️</span>
+                    <h2 data-page-node-id="vqeRTZzZ2vyX074OpSXSpl">总体配置（全局默认值）</h2>
+                    <span class="name-hint" data-page-node-id="nXBvN3vpk3d34TOkIL3Nr3">修改后「保存」仅存入后台；「保存并应用到所有 Token」会按此配置重新生成所有订阅</span>
                 </div>
-                <div class="config-grid">
-                    <div class="config-item">
-                        <label>AI 智能分流</label>
-                        <select id="gc-ai-routing">
-                            <option value="false">关闭</option>
-                            <option value="true">开启</option>
+                <div class="config-grid" data-page-node-id="DU7CvACYeRaTUZtafvZUx2">
+                    <div class="config-item" data-page-node-id="xyC5nKccDm89nhKPcMP5C5">
+                        <label data-page-node-id="U6BlVw1DtMAlQTdj4kVZyF">AI 智能分流</label>
+                        <select id="gc-ai-routing" data-page-node-id="6p8F9V1tZ0bQLujplxaijQ">
+                            <option value="false" data-page-node-id="8zszug4vN5DEqUA7K0grE8">关闭</option>
+                            <option value="true" data-page-node-id="vnic6wcUQKx7SAuHpYOV9B">开启</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>AI 节点偏好</label>
-                        <select id="gc-ai-preference">
-                            <option value="jp_hk">AI→日本优先 / 默认→香港优先</option>
-                            <option value="hk_jp">AI→香港优先 / 默认→日本优先</option>
+                    <div class="config-item" data-page-node-id="BK2calEsjBvpOKEBgcqAbp">
+                        <label data-page-node-id="shKDutv3o8avjkcjXbB4G9">AI 节点偏好</label>
+                        <select id="gc-ai-preference" data-page-node-id="tPL60OBg4aygTxVqB8jqMK">
+                            <option value="jp_hk" data-page-node-id="xq6WW9Kl7Axy3lNVn5obHy">AI→日本优先 / 默认→香港优先</option>
+                            <option value="hk_jp" data-page-node-id="AHBvyLkKyL5uE8lFplSqUD">AI→香港优先 / 默认→日本优先</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>分流规则</label>
-                        <select id="gc-rules-mode">
-                            <option value="basic">基础（内置国内直连）</option>
-                            <option value="remote">完整（远程 Loyalsoldier）</option>
-                            <option value="none">无规则（等同于全局代理）</option>
+                    <div class="config-item" data-page-node-id="RQuLP0ksBe1BzspBHow4H9">
+                        <label data-page-node-id="vo1ReDE5XM6PwiEhaDTBQH">分流规则</label>
+                        <select id="gc-rules-mode" data-page-node-id="o9DvODH84hFwjEQ7MDKA6a">
+                            <option value="basic" data-page-node-id="7zFtCcH8SFOATvMXtiBlR3">基础（内置国内直连）</option>
+                            <option value="remote" data-page-node-id="iATOkzngGEbsEVFAX8i1lo">完整（远程 Loyalsoldier）</option>
+                            <option value="none" data-page-node-id="V5rSfqa2HluEYGalCUlWMb">无规则（等同于全局代理）</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>策略组名称</label>
-                        <input type="text" id="gc-group-name" value="节点选择">
+                    <div class="config-item" data-page-node-id="bUa7HJRB7wM0sCv7JnY6kk">
+                        <label data-page-node-id="GjRomVS9cMtm98io1BcxpL">策略组名称</label>
+                        <input type="text" id="gc-group-name" value="节点选择" data-page-node-id="vlbk0uS3rpLBTMeQuKttEo">
                     </div>
-                    <div class="config-item">
-                        <label>混合端口</label>
-                        <input type="number" id="gc-port" value="7890">
+                    <div class="config-item" data-page-node-id="7lzxlD2oDtF2bBqcNOvO3n">
+                        <label data-page-node-id="yd9RAZW6oel6uOH8KMGQFA">混合端口</label>
+                        <input type="number" id="gc-port" value="7890" data-page-node-id="1TZrxJQNAVS3CaTBVVElTG">
                     </div>
-                    <div class="config-item">
-                        <label>允许局域网</label>
-                        <select id="gc-allow-lan">
-                            <option value="true">是</option>
-                            <option value="false">否</option>
+                    <div class="config-item" data-page-node-id="CE5HxCzfJMk74Lg7dbMqGJ">
+                        <label data-page-node-id="srinLUMKSZNbg3FrADoOxj">允许局域网</label>
+                        <select id="gc-allow-lan" data-page-node-id="W9tdD8jpnoFRDiUjRzqL6H">
+                            <option value="true" data-page-node-id="9M8I50nzb4QGWj8B4qSH5S">是</option>
+                            <option value="false" data-page-node-id="L0mDyO5ZXCCuOxBezL26iE">否</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>日志级别</label>
-                        <select id="gc-log-level">
-                            <option value="info">info</option>
-                            <option value="debug">debug</option>
-                            <option value="warning">warning</option>
-                            <option value="error">error</option>
-                            <option value="silent">silent</option>
+                    <div class="config-item" data-page-node-id="kFj3jdZx6QV83yreGGKec8">
+                        <label data-page-node-id="QaQRGanylZwFZBGOANqV8l">日志级别</label>
+                        <select id="gc-log-level" data-page-node-id="Z2Dkk1CdsnmeDmJw5lZrTm">
+                            <option value="info" data-page-node-id="M5E4sJ7Wiizh7pw8OVlfnF">info</option>
+                            <option value="debug" data-page-node-id="lzd0s6ePB1dtSRt05NqNlz">debug</option>
+                            <option value="warning" data-page-node-id="aAr4liEzRb7A1tNiTFr7I3">warning</option>
+                            <option value="error" data-page-node-id="kBwiB3GgEYOZimNudeBWCZ">error</option>
+                            <option value="silent" data-page-node-id="CxgfIzF873N0FZOdU8sruZ">silent</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>健康检查 URL</label>
-                        <input type="text" id="gc-hc-url" value="https://cp.cloudflare.com/digest204">
+                    <div class="config-item" data-page-node-id="aEdOIMD6pakaPVV7QsBh08">
+                        <label data-page-node-id="fKipN9LyOa4FKZz9817MhV">健康检查 URL</label>
+                        <input type="text" id="gc-hc-url" value="https://cp.cloudflare.com/digest204" data-page-node-id="ijsqw1TS59L7LhEwqXsbhE">
                     </div>
-                    <div class="config-item">
-                        <label>检查间隔(秒)</label>
-                        <input type="number" id="gc-hc-interval" value="300">
+                    <div class="config-item" data-page-node-id="VuP5BFoisT0RGDPttVPqOC">
+                        <label data-page-node-id="rIkPZtAewm86Uv86Ynuyxg">检查间隔(秒)</label>
+                        <input type="number" id="gc-hc-interval" value="300" data-page-node-id="OMsb7e2CM9XgunNpa5KLwC">
                     </div>
-                    <div class="config-item">
-                        <label>容差(ms)</label>
-                        <input type="number" id="gc-hc-tolerance" value="50">
+                    <div class="config-item" data-page-node-id="yg3Ff0ZBF1XFzCH9SCZ18H">
+                        <label data-page-node-id="xJGg1QDQlncXPmufvZB91r">容差(ms)</label>
+                        <input type="number" id="gc-hc-tolerance" value="50" data-page-node-id="1i2OeDzFuauI6lDZWmFQPo">
                     </div>
-                    <div class="config-item">
-                        <label>超时(ms)</label>
-                        <input type="number" id="gc-hc-timeout" value="5000">
+                    <div class="config-item" data-page-node-id="i0cGFu8FxAEZP3znGbgy8I">
+                        <label data-page-node-id="GHhb6tAGxZ4uCGtrXXcLQ9">超时(ms)</label>
+                        <input type="number" id="gc-hc-timeout" value="5000" data-page-node-id="kFDofuWrWNnLtH3YCU2ts9">
                     </div>
                 </div>
-                <div class="modal-actions" style="margin-top:12px;">
-                    <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)">💾 保存</button>
-                    <button class="btn btn-refresh" id="gc-apply-btn" onclick="saveGlobalConfig(true)">🚀 保存并应用到所有 Token</button>
-                    <span id="gc-status" class="login-error" style="display:none;"></span>
+                <div class="modal-actions" style="margin-top:12px;" data-page-node-id="kFltcpyW9EQA477jeqgdaZ">
+                    <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)" data-page-node-id="AE7Fs7fUa551HqaMyk7PGu">💾 保存</button>
+                    <button class="btn btn-refresh" id="gc-apply-btn" onclick="saveGlobalConfig(true)" data-page-node-id="E6iAWfeapAJjHt6GH0krRk">🚀 保存并应用到所有 Token</button>
+                    <span id="gc-status" class="login-error" style="display:none;" data-page-node-id="vqwgSiFgOCMEE3lALrs6De"></span>
                 </div>
             </div>
 
             <!-- Records Table (top priority) -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-icon">📋</span>
-                    <h2>转换记录</h2>
+            <div class="card" data-page-node-id="fxALhWskXxuwL8HKxJN8rE">
+                <div class="card-header" data-page-node-id="wMBOub4t4QoEXqDIbiOCCL">
+                    <span class="card-icon" data-page-node-id="9TdQJu2GZQJDy9ZtUIvCkC">📋</span>
+                    <h2 data-page-node-id="Dl3V0xyAWgEo79QYGKxn9J">转换记录</h2>
                 </div>
 
-                <div class="filter-bar">
-                    <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input">
-                    <button class="btn btn-small" onclick="loadRecords()">搜索</button>
-                    <button class="btn btn-small btn-secondary" onclick="clearFilters()">清除</button>
-                    <button class="btn btn-small btn-secondary" onclick="toggleColumnPanel()">列设置</button>
-                    <button class="btn btn-small btn-refresh" id="refresh-all-btn" onclick="refreshAllRecords()">⚡ 一键全部更新</button>
-                    <div id="column-panel" class="column-panel" style="display:none;">
-                        <div class="column-panel-title">显示列</div>
-                        <label><input type="checkbox" data-col="created" onchange="toggleColumn(this)"> 时间</label>
-                        <label><input type="checkbox" data-col="updated" onchange="toggleColumn(this)" checked> 最后更新</label>
-                        <label><input type="checkbox" data-col="ip" onchange="toggleColumn(this)" checked> 客户端IP</label>
-                        <label><input type="checkbox" data-col="nodes" onchange="toggleColumn(this)" checked> 节点数量</label>
-                        <label><input type="checkbox" data-col="name" onchange="toggleColumn(this)" checked> 配置名称</label>
-                        <label><input type="checkbox" data-col="count" onchange="toggleColumn(this)" checked> 更新次数</label>
+                <div class="filter-bar" data-page-node-id="uFtTFzt97oiZURhFwmJB1W">
+                    <input type="text" id="search-input" placeholder="搜索链接 / IP / token..." class="filter-input" data-page-node-id="jb17P8eElRw9dCmtBMQ9aU">
+                    <button class="btn btn-small" onclick="loadRecords()" data-page-node-id="yat9VxXJNJdnukFBZhdtx2">搜索</button>
+                    <button class="btn btn-small btn-secondary" onclick="clearFilters()" data-page-node-id="HCsg6CQWv2v7egZucLjkBM">清除</button>
+                    <button class="btn btn-small btn-secondary" onclick="toggleColumnPanel()" data-page-node-id="eus8CCb1NPXI1blOhAjtiT">列设置</button>
+                    <button class="btn btn-small btn-refresh" id="refresh-all-btn" onclick="refreshAllRecords()" data-page-node-id="I2DHIuetOKroMX2Q81onvD">⚡ 一键全部更新</button>
+                    <div id="column-panel" class="column-panel" style="display:none;" data-page-node-id="sYMnjA1BA0qwaGGXKaIT9E">
+                        <div class="column-panel-title" data-page-node-id="BND3g3OO4b7J6BtKinWG0Q">显示列</div>
+                        <label data-page-node-id="UXPOwUEGAZ4dVm6YdiRQjB"><input type="checkbox" data-col="created" onchange="toggleColumn(this)" data-page-node-id="TzizUs3jlc8QXuaOpHDtfG"> 时间</label>
+                        <label data-page-node-id="jYbKOwrAGDKHXPuFXbeLle"><input type="checkbox" data-col="updated" onchange="toggleColumn(this)" checked data-page-node-id="wJ11iqo8HtTqSU4lFQYfPV"> 最后更新</label>
+                        <label data-page-node-id="fnbv1TcE6kUzJju11kDfpn"><input type="checkbox" data-col="ip" onchange="toggleColumn(this)" checked data-page-node-id="CqvKvQ8Lp1TVTmc17Rex9Q"> 客户端IP</label>
+                        <label data-page-node-id="5hh6gvbOERBv8ECjpDKOB3"><input type="checkbox" data-col="nodes" onchange="toggleColumn(this)" checked data-page-node-id="dolhc6j9XeCu756hSK2HqT"> 节点数量</label>
+                        <label data-page-node-id="IEVmIEGEhLI352VJXk5QdS"><input type="checkbox" data-col="name" onchange="toggleColumn(this)" checked data-page-node-id="X9IctXaSghveAefndLEXFD"> 配置名称</label>
+                        <label data-page-node-id="lPD8WudAiiR6DlmT638O0X"><input type="checkbox" data-col="count" onchange="toggleColumn(this)" checked data-page-node-id="D7NTsIHiM9jFPdFJM3kiCD"> 更新次数</label>
                     </div>
                 </div>
 
-                <div class="table-wrapper">
-                    <table class="records-table">
-                        <thead>
-                            <tr>
-                                <th style="width:40px;">ID</th>
-                                <th style="width:160px;" data-col="created">时间</th>
-                                <th style="width:160px;" data-col="updated">最后更新</th>
-                                <th style="width:130px;" data-col="ip">客户端IP</th>
-                                <th style="width:60px;" data-col="nodes">节点数量</th>
-                                <th style="width:140px;" data-col="name">配置名称</th>
-                                <th style="width:70px;" data-col="count">更新次数</th>
-                                <th style="width:300px;">操作</th>
+                <div class="table-wrapper" data-page-node-id="TgjcIYB1EAWNEdJQcHanGH">
+                    <table class="records-table" data-page-node-id="dafrs41XdaZ6AlDCjlmgQ5">
+                        <thead data-page-node-id="DiSFChdimiztjaRyVs6lkB">
+                            <tr data-page-node-id="slHo54RM6shDb1QPGO1qyW">
+                                <th style="width:40px;" data-page-node-id="wKOo8Bb3Gs0NLcELeeGry0">ID</th>
+                                <th style="width:160px;" data-col="created" data-page-node-id="CYUt9FIuehMMVvyYNkB8NV">时间</th>
+                                <th style="width:160px;" data-col="updated" data-page-node-id="FfE5LokCRby9ThHkimz95Y">最后更新</th>
+                                <th style="width:130px;" data-col="ip" data-page-node-id="yk7sLecyoxsoEYnQZUI5Gh">客户端IP</th>
+                                <th style="width:60px;" data-col="nodes" data-page-node-id="QWb26BVMC4RF9hq1KDG3LX">节点数量</th>
+                                <th style="width:140px;" data-col="name" data-page-node-id="f1KmRCVo3R1aJXjlDLIKOw">配置名称</th>
+                                <th style="width:70px;" data-col="count" data-page-node-id="49tqRGTsL8lwqOf3jM8sAp">更新次数</th>
+                                <th style="width:300px;" data-page-node-id="AkK9PSp8D6CYljlvLIcTa5">操作</th>
                             </tr>
                         </thead>
-                        <tbody id="records-tbody">
-                    <tr><td colspan="8" class="table-empty">加载中...</td></tr>
+                        <tbody id="records-tbody" data-page-node-id="HjkTkB4CwS3MdRhK24FfNy">
+                    <tr data-page-node-id="62yFRwbW0n5YohEsgrFifC"><td colspan="8" class="table-empty" data-page-node-id="gOtSpe0yFEKIOUlC9YCzJH">加载中...</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div class="pagination">
-                    <button class="btn btn-small" id="prev-page" onclick="changePage(-1)">上一页</button>
-                    <span id="page-info" class="page-info">-</span>
-                    <button class="btn btn-small" id="next-page" onclick="changePage(1)">下一页</button>
+                <div class="pagination" data-page-node-id="ziwpjI1tSeWAlMqCAXE4wS">
+                    <button class="btn btn-small" id="prev-page" onclick="changePage(-1)" data-page-node-id="9MKcs654h79H6sFi4a5oPg">上一页</button>
+                    <span id="page-info" class="page-info" data-page-node-id="7GHy9bVAOIBYf8nNV1OuZi">-</span>
+                    <button class="btn btn-small" id="next-page" onclick="changePage(1)" data-page-node-id="HSEoHIcfdXUOovNDDRJVC6">下一页</button>
                 </div>
             </div>
 
             <!-- IP Ranking (collapsible, collapsed by default) -->
-            <div class="card" id="top-ips-card">
-                <div class="card-header collapsible-header" onclick="togglePanel('top-ips')" id="top-ips-header">
-                    <span class="card-icon">📍</span>
-                    <h2>转换记录排行 (Top 10)</h2>
-                    <span class="toggle-arrow" id="top-ips-arrow">▶</span>
+            <div class="card" id="top-ips-card" data-page-node-id="G62fDYEnL1CmDWDCop9ccR">
+                <div class="card-header collapsible-header" onclick="togglePanel('top-ips')" id="top-ips-header" data-page-node-id="CZzIGJZXoxy6BadM3JfZdl">
+                    <span class="card-icon" data-page-node-id="EKNYpeNoVA2aaghX4hk6U7">📍</span>
+                    <h2 data-page-node-id="GAIRYAW3l47IQWB9aGYlTW">转换记录排行 (Top 10)</h2>
+                    <span class="toggle-arrow" id="top-ips-arrow" data-page-node-id="aAcTU432gkrkxISzGKURuN">▶</span>
                 </div>
-                <div class="collapsible-content" id="top-ips-content" style="display:none;">
-                    <div id="top-ips-list" class="top-ips-list"></div>
+                <div class="collapsible-content" id="top-ips-content" style="display:none;" data-page-node-id="SM2ziIFIeFGKUjgHEFx89O">
+                    <div id="top-ips-list" class="top-ips-list" data-page-node-id="FCE2zetKP6qooW0tG3i0OC"></div>
                 </div>
             </div>
 
             <!-- Daily Breakdown (collapsible, collapsed by default, at bottom) -->
-            <div class="card" id="daily-card">
-                <div class="card-header collapsible-header" onclick="togglePanel('daily')" id="daily-header">
-                    <span class="card-icon">📅</span>
-                    <h2>配置更新次数趋势 (近 7 天)</h2>
-                    <span class="toggle-arrow" id="daily-arrow">▶</span>
+            <div class="card" id="daily-card" data-page-node-id="5Tls9rvRUk0mnNaGMvTuCa">
+                <div class="card-header collapsible-header" onclick="togglePanel('daily')" id="daily-header" data-page-node-id="FC1gbi9ubtbcrSBBHDEJ25">
+                    <span class="card-icon" data-page-node-id="Y1zyrXWRnvgxgUEtJPXQrM">📅</span>
+                    <h2 data-page-node-id="KEPGW51AHOULLUAXialoB5">配置更新次数趋势 (近 7 天)</h2>
+                    <span class="toggle-arrow" id="daily-arrow" data-page-node-id="aHB32yFcMH4BnWRtjByiE1">▶</span>
                 </div>
-                <div class="collapsible-content" id="daily-content" style="display:none;">
-                    <div class="table-wrapper">
-                        <table class="records-table daily-table">
-                            <thead>
-                                <tr>
-                                    <th>日期</th>
-                                    <th>更新次数</th>
-                                    <th>生成节点数</th>
-                                    <th>标记</th>
+                <div class="collapsible-content" id="daily-content" style="display:none;" data-page-node-id="5uPhgENrLgakyPqRXdau1Z">
+                    <div class="table-wrapper" data-page-node-id="cG2D6uPmzDd0WC1INqQgZD">
+                        <table class="records-table daily-table" data-page-node-id="OmmbwsHADe9ACMFTGizmat">
+                            <thead data-page-node-id="du6eKs1c6IrtcLef2HRjHE">
+                                <tr data-page-node-id="EZQbICB1bfvqg9IUctBo8v">
+                                    <th data-page-node-id="DYSJr9tgtxFvZ8CzJ0rjuq">日期</th>
+                                    <th data-page-node-id="N9ldJXfWpbnCqzo678FLUA">更新次数</th>
+                                    <th data-page-node-id="563ooyLqxKSEq1dxnMTRqq">生成节点数</th>
+                                    <th data-page-node-id="5gHKh42TaUuW2I4p6vgqNF">标记</th>
                                 </tr>
                             </thead>
-                            <tbody id="daily-tbody">
-                                <tr><td colspan="4" class="table-empty">加载中...</td></tr>
+                            <tbody id="daily-tbody" data-page-node-id="9iyMh2SzqKLIEW0t83x3Va">
+                                <tr data-page-node-id="1FGSBRvY0LCs4vvTZbNOnd"><td colspan="4" class="table-empty" data-page-node-id="UbTm1XmcrVCIYCrAX5qrFi">加载中...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <div class="manage-footer">
-                <a href="/" class="back-link">← 返回转换工具</a>
+            <div class="manage-footer" data-page-node-id="HL8uaKMFDq2p2HQBtdasqY">
+                <a href="/" class="back-link" data-page-node-id="fGdCyv5YlZxR3ttqlf0zsj">← 返回转换工具</a>
             </div>
         </div>
 
         <!-- Record Detail Modal -->
-        <div id="detail-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closeDetailModal()"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>📋 记录详情</h2>
-                    <button class="modal-close" onclick="closeDetailModal()">✕</button>
+        <div id="detail-modal" class="modal" style="display:none;" data-page-node-id="IFejqLqDvq86YgF9M4EVId">
+            <div class="modal-overlay" onclick="closeDetailModal()" data-page-node-id="NvcqhXYuErcmukR2NKs6DR"></div>
+            <div class="modal-content" data-page-node-id="tacFNAYAOTz79JPToPmjE0">
+                <div class="modal-header" data-page-node-id="DxgtOH14g8zWTUlQlsZHib">
+                    <h2 data-page-node-id="NnRzXvFGneqSqeldJCL5V3">📋 记录详情</h2>
+                    <button class="modal-close" onclick="closeDetailModal()" data-page-node-id="IPkDJ8Bqa6bJDO49cr967W">✕</button>
                 </div>
-                <div class="modal-body">
-                    <div class="detail-row">
-                        <label>ID</label>
-                        <span id="detail-id"></span>
+                <div class="modal-body" data-page-node-id="ghXHaOXSNRDOPHPsslnG7j">
+                    <div class="detail-row" data-page-node-id="rNsIsi187975DQBZWuCogK">
+                        <label data-page-node-id="efRNz1iIrj6njtRHsCpwhH">ID</label>
+                        <span id="detail-id" data-page-node-id="GUa7uM8mO4h0IiId2M65OA"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>转换时间</label>
-                        <span id="detail-time"></span>
+                    <div class="detail-row" data-page-node-id="N00boJPYzoqNMbrZ6Sd1jO">
+                        <label data-page-node-id="3LyaHqNTQr17Z1E6BwXwhg">转换时间</label>
+                        <span id="detail-time" data-page-node-id="zMRSZEcNYyVyhlXfdlnPWR"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>最后更新</label>
-                        <span id="detail-updated-at"></span>
+                    <div class="detail-row" data-page-node-id="cJFbBT8BHKwZdjpo4GhUU4">
+                        <label data-page-node-id="VAPJOU5Lpj5t377R6O1J99">最后更新</label>
+                        <span id="detail-updated-at" data-page-node-id="R6xCRJkSdHh7Z9XuqxC1hQ"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>转换者 IP</label>
-                        <span id="detail-ip"></span>
+                    <div class="detail-row" data-page-node-id="wFsn58fRpj4qvvOLv4s8aT">
+                        <label data-page-node-id="CqmLSB0m4IAIARkedaPkAJ">转换者 IP</label>
+                        <span id="detail-ip" data-page-node-id="0nA80g6S7JdgSMXdEvrGkM"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>该IP转换次数</label>
-                        <span id="detail-ip-update-count"></span>
+                    <div class="detail-row" data-page-node-id="PTO34cxtzZmDYKAgvJAwVx">
+                        <label data-page-node-id="m0S5Epw3XtavcBWgIHOOiB">该IP转换次数</label>
+                        <span id="detail-ip-update-count" data-page-node-id="xcAPnvTyFdCEUYXRxdyoYz"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>订阅拉取次数</label>
-                        <span id="detail-update-count"></span>
+                    <div class="detail-row" data-page-node-id="85Zp6PsC43sY5ry9YNN1B8">
+                        <label data-page-node-id="DADJfN5iJGGfDv0Zox8UlJ">订阅拉取次数</label>
+                        <span id="detail-update-count" data-page-node-id="VZCcBxNBJ1kNk7VlGThdA7"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>节点数量</label>
-                        <span id="detail-nodes"></span>
+                    <div class="detail-row" data-page-node-id="v1PUD3gmdHfveJoWO6TNFl">
+                        <label data-page-node-id="zCzGGJGtLxrZKgbvE9gWAd">节点数量</label>
+                        <span id="detail-nodes" data-page-node-id="UbpHAxi7ZkkF9JqsGIEjBs"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>下载 Token</label>
-                        <span id="detail-token"></span>
+                    <div class="detail-row" data-page-node-id="JC3G4ASxyzBoggOmylTZjn">
+                        <label data-page-node-id="CoryQ2ihgb6efIGiDNSsik">下载 Token</label>
+                        <span id="detail-token" data-page-node-id="Azg6BnZKnAcm8zXXp5Ln3l"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>配置名称</label>
-                        <span id="detail-config-name"></span>
+                    <div class="detail-row" data-page-node-id="xKGxIOVzfdoeegbPPy0qAw">
+                        <label data-page-node-id="jQBArzyETP00vXcrUxmF10">配置名称</label>
+                        <span id="detail-config-name" data-page-node-id="B0b0KLaGUhcMPHk2FOKzHH"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>下载链接</label>
-                        <div class="detail-link-with-copy">
-                            <a id="detail-download-link" href="#" target="_blank" class="detail-link"></a>
-                            <button class="btn btn-small btn-copy" id="copy-download-btn" onclick="copyDownloadLink()">
-                                <span class="btn-icon">📋</span> 复制
+                    <div class="detail-row" data-page-node-id="PM1bX5CBe0OHfPjOCslQmB">
+                        <label data-page-node-id="2UWrOoEMhky7UlnZJ6KlTN">下载链接</label>
+                        <div class="detail-link-with-copy" data-page-node-id="Y3JQI2i4fbI9wGxokXpAwM">
+                            <a id="detail-download-link" href="#" target="_blank" class="detail-link" data-page-node-id="ajGMn6PYIHuOSDAPTEerl0"></a>
+                            <button class="btn btn-small btn-copy" id="copy-download-btn" onclick="copyDownloadLink()" data-page-node-id="bVgkGZi4K8xasYpDp4LuGy">
+                                <span class="btn-icon" data-page-node-id="xFbDLCc6VoFW1gWGQFnn6U">📋</span> 复制
                             </button>
                         </div>
                     </div>
 
                     <!-- IP Stats Panel -->
-                    <div class="detail-section" id="detail-ip-stats-section" style="display:none;">
-                        <label>此 IP 更新统计</label>
-                        <div id="detail-ip-stats" class="ip-stats-panel"></div>
+                    <div class="detail-section" id="detail-ip-stats-section" style="display:none;" data-page-node-id="7qytXfjf6sJJqSB0tgIrXt">
+                        <label data-page-node-id="M6XyKVTgo0Z7lgOJyOFjFq">此 IP 更新统计</label>
+                        <div id="detail-ip-stats" class="ip-stats-panel" data-page-node-id="c9mpD2IVfib2MUN662ZQZ4"></div>
                     </div>
 
-                    <div class="detail-section">
-                        <label>订阅地址</label>
-                        <pre id="detail-subscriptions" class="detail-pre"></pre>
+                    <div class="detail-section" data-page-node-id="1fvqUB7Ieqop2sUOqlJhvC">
+                        <label data-page-node-id="JCMARiWBO8verViffHLy9g">订阅地址</label>
+                        <pre id="detail-subscriptions" class="detail-pre" data-page-node-id="RUwZWKApBMVqpVDuWZ7ehN"></pre>
                     </div>
-                    <div class="detail-section">
-                        <label>原始代理链接</label>
-                        <pre id="detail-original" class="detail-pre"></pre>
+                    <div class="detail-section" data-page-node-id="xQLOduxiDkDvYmqWaoEgzs">
+                        <label data-page-node-id="6GU3f3H67XRGEgk9sV52Rp">原始代理链接</label>
+                        <pre id="detail-original" class="detail-pre" data-page-node-id="MlkYAdBwi117DG55TXqA9Y"></pre>
                     </div>
-                    <div class="detail-section">
-                        <label>转换后 YAML 配置</label>
-                        <pre id="detail-yaml" class="detail-pre yaml-output"></pre>
+                    <div class="detail-section" data-page-node-id="TjIiOc1AgASzAvDy3OKefW">
+                        <label data-page-node-id="0EGXEtg8m2sYGEUgw78JXq">转换后 YAML 配置</label>
+                        <pre id="detail-yaml" class="detail-pre yaml-output" data-page-node-id="LimKOBi4xAKYD1CkqsFetI"></pre>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- YAML Editor Modal -->
-        <div id="yaml-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closeYamlModal()"></div>
-            <div class="modal-content yaml-modal-content">
-                <div class="modal-header">
-                    <h2>✏️ 编辑配置文件 <span id="yaml-record-label" class="yaml-record-label"></span></h2>
-                    <button class="modal-close" onclick="closeYamlModal()">✕</button>
+        <div id="yaml-modal" class="modal" style="display:none;" data-page-node-id="wsucIswtUhe2gN0U3JSuGs">
+            <div class="modal-overlay" onclick="closeYamlModal()" data-page-node-id="4158APcFNqCQJzbdIEfuVA"></div>
+            <div class="modal-content yaml-modal-content" data-page-node-id="OB35vNBHXTpi5CH30FDWc6">
+                <div class="modal-header" data-page-node-id="NrJrcvmsYDtaIQF2qyjDYt">
+                    <h2 data-page-node-id="qXiKWVTIz1xK15MrgK7hvP">✏️ 编辑配置文件 <span id="yaml-record-label" class="yaml-record-label" data-page-node-id="HxD4zCKzY4O7QzKLajyhnB"></span></h2>
+                    <button class="modal-close" onclick="closeYamlModal()" data-page-node-id="xgzlBwZajU02ULaDkrXp4a">✕</button>
                 </div>
-                <div class="modal-body">
-                    <div class="yaml-toolbar">
-                        <span id="yaml-status" class="yaml-status"></span>
-                        <span class="yaml-hint">可直接增删规则/节点/策略组，保存后立即生效（token 不变）；语法错误会被拒绝保存</span>
+                <div class="modal-body" data-page-node-id="HEUDxpEfD4FsXHi5gn5yE4">
+                    <div class="yaml-toolbar" data-page-node-id="kg8VDpwmW8GPMOKLcSlC6w">
+                        <span id="yaml-status" class="yaml-status" data-page-node-id="xXPVrDqvBnf4jraQy6eWcF"></span>
+                        <span class="yaml-hint" data-page-node-id="UM28xC4oN73MQiHWFZW6Cu">可直接增删规则/节点/策略组，保存后立即生效（token 不变）；语法错误会被拒绝保存</span>
                     </div>
-                    <div class="yaml-editor-wrap">
-                        <pre id="yaml-gutter" class="yaml-gutter" aria-hidden="true">1</pre>
+                    <div class="yaml-editor-wrap" data-page-node-id="4Wt64jE8rAvf8yCc3CAA9g">
+                        <pre id="yaml-gutter" class="yaml-gutter" aria-hidden="true" data-page-node-id="aBhZ5LzD1WnuO6QIV6qPP0">1</pre>
                         <textarea id="yaml-text" class="yaml-text" spellcheck="false" wrap="off"></textarea>
                     </div>
-                    <div class="modal-actions" style="margin-top:12px;">
-                        <button class="btn" onclick="closeYamlModal()">取消</button>
-                        <button class="btn btn-primary" id="yaml-save-btn" onclick="saveYaml()">💾 保存</button>
+                    <div class="modal-actions" style="margin-top:12px;" data-page-node-id="wo67c7flvn4WT6LubsfYio">
+                        <button class="btn" onclick="closeYamlModal()" data-page-node-id="RCqG7jm8cbroQvAlm9hiAe">取消</button>
+                        <button class="btn btn-primary" id="yaml-save-btn" onclick="saveYaml()" data-page-node-id="2t8lGVYlPTd9THEzo0QzkX">💾 保存</button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Change Password Modal -->
-        <div id="password-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closePasswordModal()"></div>
-            <div class="modal-content modal-sm">
-                <div class="modal-header">
-                    <h2>🔑 修改密码</h2>
-                    <button class="modal-close" onclick="closePasswordModal()">✕</button>
+        <div id="password-modal" class="modal" style="display:none;" data-page-node-id="fjHKP0HJEE8Cqf4zdXoYbC">
+            <div class="modal-overlay" onclick="closePasswordModal()" data-page-node-id="1Oxt1obesmfWM4MaLxRkFg"></div>
+            <div class="modal-content modal-sm" data-page-node-id="XAF0BNHVXdehic1ETd7dNC">
+                <div class="modal-header" data-page-node-id="J7NHl0Z6J8KuEH1Gn8qN6B">
+                    <h2 data-page-node-id="mlQaAEmIYwjjzkT8RZ2ycW">🔑 修改密码</h2>
+                    <button class="modal-close" onclick="closePasswordModal()" data-page-node-id="FmsgSQ2i37vZjpjv3h4pL6">✕</button>
                 </div>
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label>旧密码</label>
-                        <input type="password" id="old-password" autocomplete="current-password">
+                <div class="modal-body" data-page-node-id="y2BxuZJe3JjVcREBcMm7WT">
+                    <div class="form-group" data-page-node-id="JFnruvKjfhCC9pMsIGGFDI">
+                        <label data-page-node-id="4TPNwEJyUqLUz1nRkY5qiH">旧密码</label>
+                        <input type="password" id="old-password" autocomplete="current-password" data-page-node-id="9qYpfLSA0mHAAJ16mSOR26">
                     </div>
-                    <div class="form-group">
-                        <label>新密码 (至少 8 位)</label>
-                        <input type="password" id="new-password" autocomplete="new-password">
+                    <div class="form-group" data-page-node-id="anWCJ3t9ijAI8G03GC2LRM">
+                        <label data-page-node-id="NtXfZwqnx4ICvY5GNdKBra">新密码 (至少 8 位)</label>
+                        <input type="password" id="new-password" autocomplete="new-password" data-page-node-id="yqGUKHH8oXy9gtSQhNQUW2">
                     </div>
-                    <div class="form-group">
-                        <label>确认新密码</label>
-                        <input type="password" id="confirm-password" autocomplete="new-password">
+                    <div class="form-group" data-page-node-id="vmptP2xvwa4fRWLXZ3pdOw">
+                        <label data-page-node-id="P8lWhap4kWrlbEtnS9HLv2">确认新密码</label>
+                        <input type="password" id="confirm-password" autocomplete="new-password" data-page-node-id="DVDLwEbRrxww9slRB77yg3">
                     </div>
-                    <div id="password-error" class="login-error" style="display:none;"></div>
-                    <button class="btn btn-primary btn-full" onclick="submitChangePassword()">确认修改</button>
+                    <div id="password-error" class="login-error" style="display:none;" data-page-node-id="3PRUQE9xXMcIhLWtAtTo2a"></div>
+                    <button class="btn btn-primary btn-full" onclick="submitChangePassword()" data-page-node-id="DrBLGXv3TqCS6Bz8SbrKsE">确认修改</button>
                 </div>
             </div>
         </div>
 
         <!-- Delete Confirm Modal -->
-        <div id="delete-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closeDeleteModal()"></div>
-            <div class="modal-content modal-sm">
-                <div class="modal-header">
-                    <h2>⚠️ 确认删除</h2>
-                    <button class="modal-close" onclick="closeDeleteModal()">✕</button>
+        <div id="delete-modal" class="modal" style="display:none;" data-page-node-id="EPUEYBjCtHADC3iHlvNDP8">
+            <div class="modal-overlay" onclick="closeDeleteModal()" data-page-node-id="OtgxNAHBH176ScKjOO7FxS"></div>
+            <div class="modal-content modal-sm" data-page-node-id="OHfnZ8Q5TwZubdtzyXTN6W">
+                <div class="modal-header" data-page-node-id="M33hnq74FcGxRwJE5vZWab">
+                    <h2 data-page-node-id="2wZtmpYpIcYVy7b4Ui7Uqc">⚠️ 确认删除</h2>
+                    <button class="modal-close" onclick="closeDeleteModal()" data-page-node-id="cCmfC8MC4Y9azfbB5jpiXt">✕</button>
                 </div>
-                <div class="modal-body">
-                    <p>确定要删除这条记录吗？</p>
-                    <p class="delete-warning">删除后，对应的 YAML 文件和下载链接将一并删除，此操作不可逆。</p>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" onclick="closeDeleteModal()">取消</button>
-                        <button class="btn btn-danger" id="confirm-delete-btn" onclick="confirmDelete()">确认删除</button>
+                <div class="modal-body" data-page-node-id="bZKaUC8ZhLzrGpo7Cb7Iih">
+                    <p data-page-node-id="dngebgQ9n4lCv9Tjg9t9wl">确定要删除这条记录吗？</p>
+                    <p class="delete-warning" data-page-node-id="fACChvGs4RTRTUHIGFNnxF">删除后，对应的 YAML 文件和下载链接将一并删除，此操作不可逆。</p>
+                    <div class="modal-actions" data-page-node-id="M9o8291yYs2Ixu41ljMSwU">
+                        <button class="btn btn-secondary" onclick="closeDeleteModal()" data-page-node-id="UrTiRC30IYqSC0L1R4lUiU">取消</button>
+                        <button class="btn btn-danger" id="confirm-delete-btn" onclick="confirmDelete()" data-page-node-id="9cuAE9Dr5tqgX3xPwJ09Dh">确认删除</button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Edit Record Modal -->
-        <div id="edit-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closeEditModal()"></div>
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>✏️ 编辑记录</h2>
-                    <button class="modal-close" onclick="closeEditModal()">✕</button>
+        <div id="edit-modal" class="modal" style="display:none;" data-page-node-id="Ex419OhHAdmdaAYRuckfpR">
+            <div class="modal-overlay" onclick="closeEditModal()" data-page-node-id="y4Sczccgh8pnd3yZ6Nl2Tn"></div>
+            <div class="modal-content" data-page-node-id="gowFfPOCbNhexRyFd6V5U8">
+                <div class="modal-header" data-page-node-id="mbMNcn3KOLwT4OLNOH8zbK">
+                    <h2 data-page-node-id="FdH9fSC7uu1N5bh87F7H19">✏️ 编辑记录</h2>
+                    <button class="modal-close" onclick="closeEditModal()" data-page-node-id="kHFbfFkukYbDSuD0Z6LofY">✕</button>
                 </div>
-                <div class="modal-body">
-                    <div class="detail-row">
-                        <label>ID</label>
-                        <span id="edit-id"></span>
+                <div class="modal-body" data-page-node-id="OFlN66afky9lVBlqzQPPOT">
+                    <div class="detail-row" data-page-node-id="9MToQbbx7SjVH7BM9SAsRt">
+                        <label data-page-node-id="sMw4FpWa3pPdLtMimgdgOh">ID</label>
+                        <span id="edit-id" data-page-node-id="pFHip85mapKOdUPze1AlU0"></span>
                     </div>
-                    <div class="detail-row">
-                        <label>Token（不可更改）</label>
-                        <span id="edit-token"></span>
+                    <div class="detail-row" data-page-node-id="GscoRFESWq0nk3ePwcdA4S">
+                        <label data-page-node-id="Q9rcQ2bQTToFFL7UhV7IBe">Token（不可更改）</label>
+                        <span id="edit-token" data-page-node-id="OVFjyaoodinP4RHkQZLOrx"></span>
                     </div>
-                    <div class="form-group">
-                        <label>配置名称（Clash 导入显示名）</label>
-                        <input type="text" id="edit-config-name" placeholder="留空则自动生成">
+                    <div class="form-group" data-page-node-id="KdZsuB7lfDmZL6RJ3JJ65v">
+                        <label data-page-node-id="UqJIhJ22B0K2WK7nX3k4gs">配置名称（Clash 导入显示名）</label>
+                        <input type="text" id="edit-config-name" placeholder="留空则自动生成" data-page-node-id="rlZUGrtndlmqFFciRxK28H">
                     </div>
-                    <div class="form-group">
-                        <label>分流规则</label>
-                        <select id="edit-rules-mode" class="config-select">
-                            <option value="basic">基础（内置国内直连）</option>
-                            <option value="remote">完整（远程 Loyalsoldier）</option>
-                            <option value="none">无（全局代理）</option>
+                    <div class="form-group" data-page-node-id="ItJNcfia5IjyLodSOuhjto">
+                        <label data-page-node-id="1UyjNH4znI1qkf5TSEMVia">分流规则</label>
+                        <select id="edit-rules-mode" class="config-select" data-page-node-id="XeWPnxSmO0zMYdklhQXZMa">
+                            <option value="basic" data-page-node-id="cnB0fK2wrmA8Gxrecy3VXf">基础（内置国内直连）</option>
+                            <option value="remote" data-page-node-id="KqIYKa0bABdEOIhsJKpdXK">完整（远程 Loyalsoldier）</option>
+                            <option value="none" data-page-node-id="SeocwgWjaYVjDTMmIM0WAs">无（全局代理）</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>代理链接（VLESS / VMess / SS / SSR / Trojan）</label>
+                    <div class="form-group" data-page-node-id="Fvim3ydeyPqR5nE019w11y">
+                        <label data-page-node-id="KXwh9HjdpvhCA3uZDr608e">代理链接（VLESS / VMess / SS / SSR / Trojan）</label>
                         <textarea id="edit-links" rows="8" placeholder="每行一个代理链接"></textarea>
                     </div>
-                    <div class="form-group">
-                        <label>订阅地址（可选）</label>
+                    <div class="form-group" data-page-node-id="22N2QfRVg1dApztKMfRKbg">
+                        <label data-page-node-id="6eFP6QRdVZxcPn9YhfB6nD">订阅地址（可选）</label>
                         <textarea id="edit-subscriptions" rows="3" placeholder="每行一个订阅地址"></textarea>
                     </div>
-                    <div id="edit-error" class="login-error" style="display:none;"></div>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" onclick="closeEditModal()">取消</button>
-                        <button class="btn btn-primary" id="submit-edit-btn" onclick="submitEdit()">保存更新</button>
+                    <div id="edit-error" class="login-error" style="display:none;" data-page-node-id="YqUfZciSfQQs1iWnghOaib"></div>
+                    <div class="modal-actions" data-page-node-id="nZsemj4q5MgnVK1tdhg9GC">
+                        <button class="btn btn-secondary" onclick="closeEditModal()" data-page-node-id="66y6CL2YEQhjnnT1tRKfob">取消</button>
+                        <button class="btn btn-primary" id="submit-edit-btn" onclick="submitEdit()" data-page-node-id="0OM8g2hJvP5YiWMvlP91GF">保存更新</button>
                     </div>
-                    <p class="edit-hint">💡 更新后 Token 和下载链接保持不变，Clash 刷新订阅即可获取新配置</p>
+                    <p class="edit-hint" data-page-node-id="BcCYgQ1GEf8gGIGpaGyJZ9">💡 更新后 Token 和下载链接保持不变，Clash 刷新订阅即可获取新配置</p>
                 </div>
             </div>
         </div>
 
         <!-- Refresh Config Modal -->
-        <div id="refresh-modal" class="modal" style="display:none;">
-            <div class="modal-overlay" onclick="closeRefreshModal()"></div>
-            <div class="modal-content modal-sm">
-                <div class="modal-header">
-                    <h2>🔄 刷新配置</h2>
-                    <button class="modal-close" onclick="closeRefreshModal()">✕</button>
+        <div id="refresh-modal" class="modal" style="display:none;" data-page-node-id="bJMb2wDO1GOeZEisIOawsQ">
+            <div class="modal-overlay" onclick="closeRefreshModal()" data-page-node-id="IthS3j7N9vPGidDM1ERAxd"></div>
+            <div class="modal-content modal-sm" data-page-node-id="fWtDyNsLG5EVnjCie5127c">
+                <div class="modal-header" data-page-node-id="RFZxgqylTs6heKSIPCst9x">
+                    <h2 data-page-node-id="ptLVznjMDINDzOLUjrWhoo">🔄 刷新配置</h2>
+                    <button class="modal-close" onclick="closeRefreshModal()" data-page-node-id="HYceAB2PuCXHpwHRKk3ui8">✕</button>
                 </div>
-                <div class="modal-body">
-                    <p>将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
-                    <p class="delete-warning">Token 和下载链接保持不变，Clash 刷新订阅即可生效。</p>
-                    <div class="form-group">
-                        <label>分流规则</label>
-                        <select id="refresh-rules-mode" class="config-select">
-                            <option value="basic">基础（内置国内直连）</option>
-                            <option value="remote">完整（远程 Loyalsoldier）</option>
-                            <option value="none">无（全局代理）</option>
+                <div class="modal-body" data-page-node-id="dKIJd8L61jcihky6fPgiJ7">
+                    <p data-page-node-id="FtLc1gR4bbKZf3aO5i08gW">将使用记录中的原始链接，按最新分流规则重新生成 YAML 配置。</p>
+                    <p class="delete-warning" data-page-node-id="xCCCgVIHV8rz5hvi5wHIaX">Token 和下载链接保持不变，Clash 刷新订阅即可生效。</p>
+                    <div class="form-group" data-page-node-id="KawzUd6T6Cv6Y5KZj9E5AU">
+                        <label data-page-node-id="eNAijE7uhFUO4BupmZJks8">分流规则</label>
+                        <select id="refresh-rules-mode" class="config-select" data-page-node-id="tiQB7Lo5pFzkdmmEo4Sh78">
+                            <option value="basic" data-page-node-id="EAW5km0BXaHLx6roi7fo1c">基础（内置国内直连）</option>
+                            <option value="remote" data-page-node-id="nNg2YLzCCGAu9ZAiq93Jg5">完整（远程 Loyalsoldier）</option>
+                            <option value="none" data-page-node-id="IwTMlbVHkCeFm2EvRyrnsk">无（全局代理）</option>
                         </select>
                     </div>
-                    <div id="refresh-error" class="login-error" style="display:none;"></div>
-                    <div class="modal-actions">
-                        <button class="btn btn-secondary" onclick="closeRefreshModal()">取消</button>
-                        <button class="btn btn-primary" id="confirm-refresh-btn" onclick="confirmRefresh()">确认刷新</button>
+                    <div id="refresh-error" class="login-error" style="display:none;" data-page-node-id="SzsHJsB1917UDhrjEAF5MW"></div>
+                    <div class="modal-actions" data-page-node-id="1WD9AJwc4qbQ8QpKypWEdX">
+                        <button class="btn btn-secondary" onclick="closeRefreshModal()" data-page-node-id="hfizmfP4YyGoJzoikKrxXE">取消</button>
+                        <button class="btn btn-primary" id="confirm-refresh-btn" onclick="confirmRefresh()" data-page-node-id="Uso4ijxKt3hoFXBw7DNqaa">确认刷新</button>
                     </div>
                 </div>
             </div>
@@ -483,6 +483,6 @@
     <script>
         const ADMIN_LOGGED_IN = {{ logged_in | tojson | safe if logged_in is not none else 'false' }};
     </script>
-    <script src="{{ url_for('static', filename='js/manage.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/manage.js') }}?v={{ version }}"></script>
 </body>
 </html>

@@ -65,7 +65,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.19"
+APP_VERSION = "v1.6.20"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1498,7 +1498,8 @@ def _parse_links_and_subs(raw_links, sub_urls):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # version is injected so static assets can be cache-busted with ?v=<version>
+    return render_template("index.html", version=APP_VERSION)
 
 
 @app.route("/api/version")
