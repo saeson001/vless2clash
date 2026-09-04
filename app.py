@@ -15,6 +15,8 @@ import hashlib
 import sqlite3
 import datetime
 import requests
+import yaml  # PyYAML: validate admin-edited YAML before saving
+
 from urllib.parse import unquote, parse_qs
 from flask import (
     Flask, render_template, request, jsonify, Response,
@@ -63,7 +65,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.18"
+APP_VERSION = "v1.6.19"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1912,6 +1914,90 @@ def admin_record_detail(record_id):
         "ip_update_count": ip_update_count,
         "top_ips": top_ips,
     })
+
+
+@app.route("/api/admin/records/<int:record_id>/yaml")
+def admin_record_yaml_get(record_id):
+    """Get the raw YAML content of a record for the online editor."""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, token, filename, config_name, yaml_content, updated_at FROM conversion_records WHERE id = ?",
+        (record_id,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "记录不存在"}), 404
+
+    return jsonify({
+        "id": row["id"],
+        "token": row["token"],
+        "filename": row["filename"],
+        "config_name": row["config_name"] if "config_name" in row.keys() else "",
+        "yaml_content": row["yaml_content"] or "",
+        "updated_at": row["updated_at"],
+    })
+
+
+@app.route("/api/admin/records/<int:record_id>/yaml", methods=["POST"])
+def admin_record_yaml_save(record_id):
+    """Validate and save an admin-edited YAML back to a record (DB + file).
+
+    The token never changes; clients get the edited config on next refresh.
+    Invalid YAML is rejected so a broken config can never go live.
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    data = request.get_json(silent=True) or {}
+    yaml_content = data.get("yaml_content")
+    if yaml_content is None or not str(yaml_content).strip():
+        return jsonify({"error": "YAML 内容为空，未保存"}), 400
+    yaml_content = str(yaml_content).replace("\r\n", "\n")
+
+    # Validate with PyYAML before persisting.
+    try:
+        parsed = yaml.safe_load(yaml_content)
+    except yaml.YAMLError as e:
+        return jsonify({"error": "YAML 语法错误，未保存：" + str(e)[:300]}), 400
+    if not isinstance(parsed, dict):
+        return jsonify({"error": "YAML 顶层必须是键值映射（如 mixed-port/proxies/rules），未保存"}), 400
+    if not parsed.get("proxies"):
+        return jsonify({"error": "缺少非空 proxies 段，订阅将没有可用节点，未保存"}), 400
+
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, filename FROM conversion_records WHERE id = ?",
+        (record_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "记录不存在"}), 404
+
+    now = datetime.datetime.now().isoformat()
+    conn.execute(
+        "UPDATE conversion_records SET yaml_content = ?, updated_at = ? WHERE id = ?",
+        (yaml_content, now, record_id)
+    )
+    conn.commit()
+    conn.close()
+
+    # Keep the served file in sync so /d/<token> reflects the edit immediately.
+    warning = ""
+    try:
+        filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
+        with open(filepath, "w", encoding="utf-8", newline="\n") as f:
+            f.write(yaml_content)
+    except OSError as e:
+        warning = "数据库已更新，但写入文件失败：" + str(e)[:120]
+
+    result = {"success": True, "message": "YAML 已保存并生效（token 不变，客户端刷新订阅即生效）"}
+    if warning:
+        result["warning"] = warning
+    return jsonify(result)
 
 
 @app.route("/api/admin/records/<int:record_id>", methods=["DELETE"])

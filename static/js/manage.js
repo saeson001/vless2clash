@@ -487,6 +487,7 @@ function loadRecords() {
                     '<button class="btn btn-small" onclick="showDetail(' + r.id + ')">详情</button>' +
                     '<button class="btn btn-small" onclick="copyRecordLink(\'' + escapeAttr(r.token) + '\', this)">复制</button>' +
                     '<button class="btn btn-small" onclick="showEdit(' + r.id + ')">编辑</button>' +
+                    '<button class="btn btn-small" onclick="showYamlEditor(' + r.id + ')">YAML</button>' +
                     '<button class="btn btn-small btn-refresh" onclick="askRefresh(' + r.id + ')">更新</button>' +
                     '<button class="btn btn-small btn-danger" onclick="askDelete(' + r.id + ')">删除</button>' +
                 '</td>' +
@@ -1007,6 +1008,116 @@ function escapeAttr(text) {
     return text.replace(/'/g, "\\'");
 }
 
+// ===== YAML Online Editor =====
+
+var yamlRecordId = null;
+
+function showYamlEditor(id) {
+    yamlRecordId = id;
+    fetch('/api/admin/records/' + id + '/yaml', { credentials: 'same-origin' })
+    .then(function(r) {
+        if (r.status === 401) {
+            showLogin();
+            throw new Error('未授权');
+        }
+        return r.json();
+    })
+    .then(function(data) {
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        document.getElementById('yaml-record-label').textContent =
+            '#' + data.id + (data.config_name ? ' · ' + data.config_name : '');
+        var ta = document.getElementById('yaml-text');
+        ta.value = data.yaml_content || '';
+        var status = document.getElementById('yaml-status');
+        status.textContent = '';
+        status.className = 'yaml-status';
+        document.getElementById('yaml-save-btn').disabled = false;
+        document.getElementById('yaml-modal').style.display = 'flex';
+        updateYamlGutter();
+        ta.scrollTop = 0;
+    })
+    .catch(function(err) {
+        if (err.message !== '未授权') {
+            alert('加载 YAML 失败');
+        }
+    });
+}
+
+function closeYamlModal() {
+    document.getElementById('yaml-modal').style.display = 'none';
+    yamlRecordId = null;
+}
+
+function updateYamlGutter() {
+    var ta = document.getElementById('yaml-text');
+    var gutter = document.getElementById('yaml-gutter');
+    var lines = ta.value.split('\n').length;
+    var out = [];
+    for (var i = 1; i <= lines; i++) out.push(i);
+    gutter.textContent = out.join('\n');
+    gutter.scrollTop = ta.scrollTop;
+}
+
+function saveYaml() {
+    if (!yamlRecordId) return;
+    var ta = document.getElementById('yaml-text');
+    var status = document.getElementById('yaml-status');
+    var btn = document.getElementById('yaml-save-btn');
+    btn.disabled = true;
+    status.textContent = '保存中…';
+    status.className = 'yaml-status';
+    fetch('/api/admin/records/' + yamlRecordId + '/yaml', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml_content: ta.value })
+    })
+    .then(function(r) {
+        return r.json().then(function(d) { return { ok: r.ok, d: d }; });
+    })
+    .then(function(res) {
+        btn.disabled = false;
+        if (!res.ok || res.d.error) {
+            status.textContent = res.d.error || '保存失败';
+            status.className = 'yaml-status yaml-status-err';
+            return;
+        }
+        status.textContent = res.d.message || '已保存';
+        status.className = 'yaml-status yaml-status-ok';
+        loadRecords();
+        setTimeout(closeYamlModal, 900);
+    })
+    .catch(function() {
+        btn.disabled = false;
+        status.textContent = '网络错误，保存失败';
+        status.className = 'yaml-status yaml-status-err';
+    });
+}
+
+// YAML editor wiring: gutter sync + Tab inserts 2 spaces (attach once)
+(function() {
+    document.addEventListener('DOMContentLoaded', function() {
+        var ta = document.getElementById('yaml-text');
+        if (!ta) return;
+        ta.addEventListener('scroll', function() {
+            document.getElementById('yaml-gutter').scrollTop = ta.scrollTop;
+        });
+        ta.addEventListener('input', updateYamlGutter);
+        ta.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                var s = ta.selectionStart, epos = ta.selectionEnd;
+                ta.value = ta.value.slice(0, s) + '  ' + ta.value.slice(epos);
+                ta.selectionStart = ta.selectionEnd = s + 2;
+                updateYamlGutter();
+            }
+        });
+    });
+})();
+
 // Close modals on Escape
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
@@ -1015,5 +1126,6 @@ document.addEventListener('keydown', function(e) {
         closeDeleteModal();
         closeEditModal();
         closeRefreshModal();
+        closeYamlModal();
     }
 });

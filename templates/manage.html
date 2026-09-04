@@ -333,6 +333,31 @@
             </div>
         </div>
 
+        <!-- YAML Editor Modal -->
+        <div id="yaml-modal" class="modal" style="display:none;">
+            <div class="modal-overlay" onclick="closeYamlModal()"></div>
+            <div class="modal-content yaml-modal-content">
+                <div class="modal-header">
+                    <h2>✏️ 编辑配置文件 <span id="yaml-record-label" class="yaml-record-label"></span></h2>
+                    <button class="modal-close" onclick="closeYamlModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="yaml-toolbar">
+                        <span id="yaml-status" class="yaml-status"></span>
+                        <span class="yaml-hint">可直接增删规则/节点/策略组，保存后立即生效（token 不变）；语法错误会被拒绝保存</span>
+                    </div>
+                    <div class="yaml-editor-wrap">
+                        <pre id="yaml-gutter" class="yaml-gutter" aria-hidden="true">1</pre>
+                        <textarea id="yaml-text" class="yaml-text" spellcheck="false" wrap="off"></textarea>
+                    </div>
+                    <div class="modal-actions" style="margin-top:12px;">
+                        <button class="btn" onclick="closeYamlModal()">取消</button>
+                        <button class="btn btn-primary" id="yaml-save-btn" onclick="saveYaml()">💾 保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Change Password Modal -->
         <div id="password-modal" class="modal" style="display:none;">
             <div class="modal-overlay" onclick="closePasswordModal()"></div>
