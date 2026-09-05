@@ -8,12 +8,14 @@ import re
 import os
 import glob
 import json
+import time
 import base64
 import string
 import secrets
 import hashlib
 import sqlite3
 import datetime
+import threading
 import requests
 import yaml  # PyYAML: validate admin-edited YAML before saving
 
@@ -65,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.22"
+APP_VERSION = "v1.6.23"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -94,6 +96,9 @@ DEFAULT_GLOBAL_CONFIG = {
     "port": 7890,
     "allow_lan": True,
     "log_level": "info",
+    # Put 「自动选择」(url-test) first in the main select group so a freshly
+    # imported subscription auto-picks the fastest node instead of DIRECT.
+    "default_to_auto": True,
     # Health-check used by fallback proxy groups (node failover)
     "hc_url": "https://cp.cloudflare.com/digest204",
     "hc_interval": 300,
@@ -125,6 +130,7 @@ def save_global_config(cfg):
     # Coerce types to match defaults so downstream code stays simple
     merged["ai_routing"] = bool(merged["ai_routing"])
     merged["allow_lan"] = bool(merged["allow_lan"])
+    merged["default_to_auto"] = bool(merged.get("default_to_auto", True))
     merged["port"] = int(merged["port"] or 7890)
     merged["hc_interval"] = int(merged["hc_interval"] or 300)
     merged["hc_tolerance"] = int(merged["hc_tolerance"] or 50)
@@ -144,7 +150,8 @@ def global_basic_config(gcfg):
         "group_name": gcfg["group_name"],
         "rules_mode": gcfg["rules_mode"],
         "ai_preference": gcfg["ai_preference"],
-        "default_to_auto": gcfg["default_to_auto"],
+        # .get() guards configs written by older versions (key may be absent)
+        "default_to_auto": gcfg.get("default_to_auto", True),
         "hc_url": gcfg["hc_url"],
         "hc_interval": gcfg["hc_interval"],
         "hc_tolerance": gcfg["hc_tolerance"],
@@ -2778,6 +2785,137 @@ def reset_admin():
     with open(ADMIN_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
     os.chmod(ADMIN_CONFIG_FILE, 0o600)
+
+
+# ---------------------------------------------------------------------------
+# Automatic post-upgrade YAML migration
+# ---------------------------------------------------------------------------
+
+AUTO_MIGRATE_MARKER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def regenerate_record_yaml(record_id, gcfg=None):
+    """Regenerate ONE record's YAML from its stored links using current logic.
+
+    Shared by 「一键全部更新」 and the automatic post-upgrade migration.
+    Returns (ok: bool, error_message: str). Token / links / URL unchanged.
+    """
+    if gcfg is None:
+        gcfg = load_global_config()
+    basic_cfg = global_basic_config(gcfg)
+
+    conn = get_db()
+    row = conn.execute("SELECT * FROM conversion_records WHERE id = ?", (record_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, "记录不存在"
+
+    raw_links = row["original_links"] or ""
+    sub_urls = row["subscription_urls"] or ""
+    xui_sub_url = row["xui_sub_url"] if "xui_sub_url" in row.keys() else ""
+    xui_sub_url = xui_sub_url or ""
+
+    if not raw_links and not sub_urls and not xui_sub_url:
+        conn.close()
+        return False, "无原始链接数据"
+
+    proxies, _errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    if not proxies:
+        conn.close()
+        return False, "重新解析失败，无有效节点"
+
+    cfg = dict(basic_cfg)
+    cfg["ai_routing"] = False
+    cfg["ai_japan"] = ""
+    cfg["ai_hongkong"] = ""
+    if gcfg.get("ai_routing"):
+        names = {p["name"] for p in proxies}
+        stored_jp = row["ai_japan"] if (row["ai_japan"] in names) else ""
+        stored_hk = row["ai_hongkong"] if (row["ai_hongkong"] in names) else ""
+        cls = classify_region_nodes(proxies)
+        ai_japan = stored_jp or (cls["japan"][0] if cls["japan"] else "")
+        ai_hongkong = stored_hk or (cls["hongkong"][0] if cls["hongkong"] else "")
+        if ai_japan and ai_hongkong:
+            cfg["ai_routing"] = True
+            cfg["ai_japan"] = ai_japan
+            cfg["ai_hongkong"] = ai_hongkong
+
+    yaml_content = generate_clash_yaml(proxies, cfg)
+    filepath = os.path.join(DOWNLOADS_DIR, row["filename"])
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(yaml_content)
+
+    now = datetime.datetime.now().isoformat()
+    conn.execute(
+        """UPDATE conversion_records
+           SET yaml_content = ?, node_count = ?, ai_routing = ?, ai_japan = ?,
+               ai_hongkong = ?, updated_at = ?
+           WHERE id = ?""",
+        (yaml_content, len(proxies), 1 if cfg["ai_routing"] else 0,
+         cfg["ai_japan"], cfg["ai_hongkong"], now, record_id)
+    )
+    conn.commit()
+    conn.close()
+    return True, ""
+
+
+def _auto_migrate_after_upgrade():
+    """Background one-time migration run after a v2c upgrade.
+
+    Stored YAML is generated once and served as-is from /d/<token>, so a newly
+    added feature (e.g. the 「自动选择」 group) does NOT appear in existing
+    subscriptions until each record is regenerated. Instead of forcing the
+    admin to click 「一键全部更新」, detect records generated by an older
+    converter (missing 自动选择) and regenerate them automatically in the
+    background shortly after startup.
+
+    Runs at most once per APP_VERSION (marker file in data/).
+    """
+    try:
+        time.sleep(3)  # let the web server finish binding first
+
+        marker = os.path.join(AUTO_MIGRATE_MARKER_DIR, f".yaml_migrated_{APP_VERSION}")
+        if os.path.exists(marker):
+            return
+
+        gcfg = load_global_config()
+        if not gcfg.get("default_to_auto", True):
+            # 自动选择 is off — nothing to migrate, but remember we checked.
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(datetime.datetime.now().isoformat() + "\n")
+            return
+
+        conn = get_db()
+        rows = conn.execute("SELECT id, yaml_content FROM conversion_records").fetchall()
+        conn.close()
+
+        stale = [r["id"] for r in rows if "自动选择" not in (r["yaml_content"] or "")]
+        for rid in stale:
+            try:
+                regenerate_record_yaml(rid, gcfg)
+            except Exception:  # noqa: BLE001 - keep going on single failure
+                pass
+
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write(datetime.datetime.now().isoformat() + "\n")
+
+        try:
+            app.logger.info(
+                "v2c %s: auto-migrated %d record(s) to the new YAML layout",
+                APP_VERSION, len(stale)
+            )
+        except Exception:
+            pass
+    except Exception:  # noqa: BLE001 - never break startup
+        pass
+
+
+# Kick off the migration in a daemon thread so it never blocks startup.
+# (gunicorn --preload imports this module once; the thread runs right after.)
+try:
+    threading.Thread(target=_auto_migrate_after_upgrade, daemon=True).start()
+except Exception:  # noqa: BLE001
+    pass
 
 
 if __name__ == "__main__":
