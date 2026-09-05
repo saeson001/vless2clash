@@ -147,6 +147,8 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-hc-interval', cfg.hc_interval != null ? cfg.hc_interval : 300);
             setGlobalConfigField('gc-hc-tolerance', cfg.hc_tolerance != null ? cfg.hc_tolerance : 50);
             setGlobalConfigField('gc-hc-timeout', cfg.hc_timeout != null ? cfg.hc_timeout : 5000);
+            setGlobalConfigField('gc-auto-update-enabled', cfg.auto_update_enabled ? 'true' : 'false');
+            setGlobalConfigField('gc-auto-update-interval', cfg.auto_update_interval_hours != null ? cfg.auto_update_interval_hours : 6);
         })
         .catch(function() {});
 }
