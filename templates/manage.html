@@ -161,6 +161,17 @@
                         <label data-page-node-id="GHhb6tAGxZ4uCGtrXXcLQ9">超时(ms)</label>
                         <input type="number" id="gc-hc-timeout" value="5000" data-page-node-id="kFDofuWrWNnLtH3YCU2ts9">
                     </div>
+                    <div class="config-item">
+                        <label>定时更新订阅</label>
+                        <select id="gc-auto-update-enabled">
+                            <option value="true">开启（自动刷新挂了订阅的记录）</option>
+                            <option value="false">关闭</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>更新间隔(小时)</label>
+                        <input type="number" id="gc-auto-update-interval" value="6" min="1" max="168">
+                    </div>
                 </div>
                 <div class="modal-actions" style="margin-top:12px;" data-page-node-id="kFltcpyW9EQA477jeqgdaZ">
                     <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)" data-page-node-id="AE7Fs7fUa551HqaMyk7PGu">💾 保存</button>
