@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.24"
+APP_VERSION = "v1.6.25"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1634,6 +1634,22 @@ def get_client_ip():
 # Routes — Public
 # ---------------------------------------------------------------------------
 
+def _normalize_xui_sub_url(url):
+    """3x-ui convenience rewrite: /clash/<subid> -> /sub/<subid>.
+
+    Users naturally copy the Clash subscription link shown in the 3x-ui
+    panel. But the /clash/ endpoint (a) only exists when subClashEnable=true
+    and (b) returns Clash YAML, which fetch_subscription cannot parse into
+    share links. The /sub/<subid> endpoint on the SAME host:port returns
+    base64 share links and is available whenever the subscription service is
+    enabled (subEnable, default on) — same subid, zero config. Rewrite so
+    pasted /clash/ links just work.
+    """
+    if "/clash/" in url:
+        return url.replace("/clash/", "/sub/", 1)
+    return url
+
+
 def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     """Parse raw proxy links and subscription URLs into a list of proxies.
 
@@ -1669,9 +1685,11 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
                 errors.append(f"无效 3x-ui 订阅地址: {url[:80]}")
                 continue
             try:
-                links = fetch_subscription(url)
+                fetch_url = _normalize_xui_sub_url(url)
+                links = fetch_subscription(fetch_url)
                 if not links:
-                    errors.append(f"3x-ui 订阅未返回任何节点: {url[:50]}")
+                    hint = "（已自动把 /clash/ 改写为 /sub/ 仍为空；请检查面板「启用订阅服务」是否开启、该客户端订阅是否有效）" if fetch_url != url else ""
+                    errors.append(f"3x-ui 订阅未返回任何节点: {fetch_url[:60]}{hint}")
                 for link in links:
                     proxy = parse_proxy(link)
                     if proxy:
@@ -1679,7 +1697,7 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
                     else:
                         errors.append(f"3x-ui 节点解析失败: {link[:80]}")
             except Exception as e:
-                errors.append(f"3x-ui 订阅获取失败 ({url[:50]}): {str(e)}")
+                errors.append(f"3x-ui 订阅获取失败 ({fetch_url[:50]}): {str(e)}")
         return proxies, errors
 
     if raw_links:
