@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.25"
+APP_VERSION = "v1.6.26"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -104,6 +104,11 @@ DEFAULT_GLOBAL_CONFIG = {
     "hc_interval": 300,
     "hc_tolerance": 50,
     "hc_timeout": 5000,
+    # Scheduled auto-update: re-fetch & regenerate records that carry a
+    # subscription (xui_sub_url / subscription_urls) so 3x-ui node changes are
+    # synced without a manual 「更新」 click.
+    "auto_update_enabled": False,
+    "auto_update_interval_hours": 6,
 }
 
 
@@ -135,6 +140,8 @@ def save_global_config(cfg):
     merged["hc_interval"] = int(merged["hc_interval"] or 300)
     merged["hc_tolerance"] = int(merged["hc_tolerance"] or 50)
     merged["hc_timeout"] = int(merged["hc_timeout"] or 5000)
+    merged["auto_update_enabled"] = bool(merged.get("auto_update_enabled", False))
+    merged["auto_update_interval_hours"] = int(merged.get("auto_update_interval_hours", 6) or 6)
     os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
     with open(GLOBAL_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
@@ -2956,10 +2963,96 @@ def _auto_migrate_after_upgrade():
         pass
 
 
+def _run_auto_update_once(gcfg):
+    """Re-fetch & regenerate every record that carries a subscription."""
+    try:
+        conn = get_db()
+        rows = conn.execute(
+            """SELECT id FROM conversion_records
+               WHERE (xui_sub_url IS NOT NULL AND xui_sub_url != '')
+                  OR (subscription_urls IS NOT NULL AND subscription_urls != '')"""
+        ).fetchall()
+        conn.close()
+        updated = 0
+        for r in rows:
+            try:
+                ok, _err = regenerate_record_yaml(r["id"], gcfg)
+                if ok:
+                    updated += 1
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            app.logger.info(
+                "v2c %s: scheduled auto-update refreshed %d subscription record(s)",
+                APP_VERSION, updated
+            )
+        except Exception:
+            pass
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _scheduled_auto_update():
+    """Background scheduler for subscription records.
+
+    Respects global config keys auto_update_enabled / auto_update_interval_hours.
+    Only one worker/master runs it (exclusive file lock); config changes are
+    picked up on the next cycle (sliced sleep, so no full restart needed).
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return  # non-Linux (e.g. local Windows smoke test) — skip scheduler
+    lock_fd = None
+    try:
+        lock_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "data", ".autoupdate_scheduler.lock"
+        )
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return  # another worker already holds the lock
+
+    global _auto_update_first_done
+    try:
+        while True:
+            try:
+                gcfg = load_global_config()
+                if gcfg.get("auto_update_enabled"):
+                    _run_auto_update_once(gcfg)
+                interval_h = max(1, int(gcfg.get("auto_update_interval_hours", 6) or 6))
+                total = interval_h * 3600
+                if not _auto_update_first_done:
+                    total = min(total, 120)  # first pass ~2 min after start
+                    _auto_update_first_done = True
+                slices = max(1, int(total // 300))
+                for _ in range(slices):
+                    time.sleep(300)
+            except Exception:  # noqa: BLE001
+                time.sleep(60)
+    finally:
+        try:
+            if lock_fd is not None:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+        except Exception:
+            pass
+
+
+_auto_update_first_done = False
+
+
 # Kick off the migration in a daemon thread so it never blocks startup.
 # (gunicorn --preload imports this module once; the thread runs right after.)
 try:
     threading.Thread(target=_auto_migrate_after_upgrade, daemon=True).start()
+except Exception:  # noqa: BLE001
+    pass
+
+
+# Kick off the scheduled auto-update in a daemon thread (single instance).
+try:
+    threading.Thread(target=_scheduled_auto_update, daemon=True).start()
 except Exception:  # noqa: BLE001
     pass
 
