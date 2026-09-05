@@ -117,6 +117,13 @@
                         <label data-page-node-id="GjRomVS9cMtm98io1BcxpL">策略组名称</label>
                         <input type="text" id="gc-group-name" value="节点选择" data-page-node-id="vlbk0uS3rpLBTMeQuKttEo">
                     </div>
+                    <div class="config-item">
+                        <label>默认自动选择</label>
+                        <select id="gc-default-to-auto">
+                            <option value="true">开启（导入后默认走「自动选择」最快节点）</option>
+                            <option value="false">关闭（默认首个节点）</option>
+                        </select>
+                    </div>
                     <div class="config-item" data-page-node-id="7lzxlD2oDtF2bBqcNOvO3n">
                         <label data-page-node-id="yd9RAZW6oel6uOH8KMGQFA">混合端口</label>
                         <input type="number" id="gc-port" value="7890" data-page-node-id="1TZrxJQNAVS3CaTBVVElTG">
@@ -322,6 +329,10 @@
                         <label data-page-node-id="JCMARiWBO8verViffHLy9g">订阅地址</label>
                         <pre id="detail-subscriptions" class="detail-pre" data-page-node-id="RUwZWKApBMVqpVDuWZ7ehN"></pre>
                     </div>
+                    <div class="detail-section">
+                        <label>3x-ui 订阅链接</label>
+                        <pre id="detail-xui-sub" class="detail-pre"></pre>
+                    </div>
                     <div class="detail-section" data-page-node-id="xQLOduxiDkDvYmqWaoEgzs">
                         <label data-page-node-id="6GU3f3H67XRGEgk9sV52Rp">原始代理链接</label>
                         <pre id="detail-original" class="detail-pre" data-page-node-id="MlkYAdBwi117DG55TXqA9Y"></pre>
@@ -467,6 +478,10 @@
                     <div class="form-group" data-page-node-id="22N2QfRVg1dApztKMfRKbg">
                         <label data-page-node-id="6eFP6QRdVZxcPn9YhfB6nD">订阅地址（可选）</label>
                         <textarea id="edit-subscriptions" rows="3" placeholder="每行一个订阅地址"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>3x-ui 订阅链接（可选，自动同步）</label>
+                        <textarea id="edit-xui-sub" rows="2" placeholder="填写 3x-ui 面板的订阅链接后，刷新/更新会自动拉取 3x-ui 中最新链接（含已修正的 shortId），无需再手动粘贴"></textarea>
                     </div>
                     <div id="edit-error" class="login-error" style="display:none;" data-page-node-id="YqUfZciSfQQs1iWnghOaib"></div>
                     <div class="modal-actions" data-page-node-id="nZsemj4q5MgnVK1tdhg9GC">

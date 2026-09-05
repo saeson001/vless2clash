@@ -139,6 +139,7 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-ai-preference', cfg.ai_preference || 'jp_hk');
             setGlobalConfigField('gc-rules-mode', cfg.rules_mode || 'basic');
             setGlobalConfigField('gc-group-name', cfg.group_name || '节点选择');
+            setGlobalConfigField('gc-default-to-auto', cfg.default_to_auto ? 'true' : 'false');
             setGlobalConfigField('gc-port', cfg.port != null ? cfg.port : 7890);
             setGlobalConfigField('gc-allow-lan', cfg.allow_lan ? 'true' : 'false');
             setGlobalConfigField('gc-log-level', cfg.log_level || 'info');
@@ -161,6 +162,7 @@ function saveGlobalConfig(applyAll) {
         ai_preference: document.getElementById('gc-ai-preference').value,
         rules_mode: document.getElementById('gc-rules-mode').value,
         group_name: document.getElementById('gc-group-name').value || '节点选择',
+        default_to_auto: document.getElementById('gc-default-to-auto').value === 'true',
         port: parseInt(document.getElementById('gc-port').value) || 7890,
         allow_lan: document.getElementById('gc-allow-lan').value === 'true',
         log_level: document.getElementById('gc-log-level').value,
@@ -569,6 +571,8 @@ function showDetail(id) {
         }
 
         document.getElementById('detail-subscriptions').textContent = data.subscription_urls || '(无)';
+        var xuiEl = document.getElementById('detail-xui-sub');
+        if (xuiEl) xuiEl.textContent = data.xui_sub_url || '(无，使用手动链接)';
         document.getElementById('detail-original').textContent = data.original_links || '(无)';
         document.getElementById('detail-yaml').textContent = data.yaml_content || '(无)';
         document.getElementById('detail-modal').style.display = 'flex';
@@ -716,6 +720,7 @@ function showEdit(id) {
         document.getElementById('edit-config-name').value = data.config_name || '';
         document.getElementById('edit-links').value = data.original_links || '';
         document.getElementById('edit-subscriptions').value = data.subscription_urls || '';
+        document.getElementById('edit-xui-sub').value = data.xui_sub_url || '';
         // Default to basic when editing
         document.getElementById('edit-rules-mode').value = 'basic';
         document.getElementById('edit-modal').style.display = 'flex';
@@ -737,11 +742,12 @@ function submitEdit() {
 
     var links = document.getElementById('edit-links').value.trim();
     var subscriptions = document.getElementById('edit-subscriptions').value.trim();
+    var xuiSub = document.getElementById('edit-xui-sub').value.trim();
     var configName = document.getElementById('edit-config-name').value.trim();
     var rulesMode = document.getElementById('edit-rules-mode').value;
 
-    if (!links && !subscriptions) {
-        showEditError('请输入代理链接或订阅地址');
+    if (!links && !subscriptions && !xuiSub) {
+        showEditError('请输入代理链接、订阅地址或 3x-ui 订阅链接');
         return;
     }
 
@@ -756,6 +762,7 @@ function submitEdit() {
         body: JSON.stringify({
             links: links,
             subscriptions: subscriptions,
+            xui_sub_url: xuiSub,
             config_name: configName,
             rules_mode: rulesMode
         })

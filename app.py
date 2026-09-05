@@ -65,7 +65,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.21"
+APP_VERSION = "v1.6.22"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -144,6 +144,7 @@ def global_basic_config(gcfg):
         "group_name": gcfg["group_name"],
         "rules_mode": gcfg["rules_mode"],
         "ai_preference": gcfg["ai_preference"],
+        "default_to_auto": gcfg["default_to_auto"],
         "hc_url": gcfg["hc_url"],
         "hc_interval": gcfg["hc_interval"],
         "hc_tolerance": gcfg["hc_tolerance"],
@@ -369,6 +370,13 @@ def init_db():
         conn.execute("ALTER TABLE conversion_records ADD COLUMN updated_at TEXT DEFAULT ''")
         conn.commit()
 
+    # Migration: add xui_sub_url column (3x-ui subscription source for auto-sync)
+    try:
+        conn.execute("SELECT xui_sub_url FROM conversion_records LIMIT 1")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE conversion_records ADD COLUMN xui_sub_url TEXT DEFAULT ''")
+        conn.commit()
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -464,19 +472,20 @@ def change_admin_password(username, old_password, new_password):
     return True, "密码修改成功"
 
 
-def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name="", ai_routing=False, ai_japan="", ai_hongkong=""):
+def record_conversion(original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name="", ai_routing=False, ai_japan="", ai_hongkong="", xui_sub_url=""):
     """Insert a conversion record into the database."""
     now = datetime.datetime.now().isoformat()
     conn = get_db()
     conn.execute(
         """INSERT INTO conversion_records
-           (created_at, updated_at, original_links, subscription_urls, yaml_content, client_ip, token, filename, node_count, config_name, ai_routing, ai_japan, ai_hongkong)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (created_at, updated_at, original_links, subscription_urls, xui_sub_url, yaml_content, client_ip, token, filename, node_count, config_name, ai_routing, ai_japan, ai_hongkong)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             now,
             now,
             original_links,
             subscription_urls,
+            xui_sub_url,
             yaml_content,
             client_ip,
             token,
@@ -1313,6 +1322,9 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f'  - name: "{group_name}"')
     lines.append(f'    type: select')
     lines.append(f'    proxies:')
+    if config.get("default_to_auto", True):
+        # 默认选中「自动选择」分组（url-test 自动挑最快节点），而非固定节点或直连
+        lines.append(f'      - "自动选择"')
     for p in proxies:
         lines.append(f'      - "{p["name"]}"')
     lines.append(f'      - DIRECT')
@@ -1373,6 +1385,21 @@ def generate_clash_yaml(proxies, config=None):
         lines.append(f'    tolerance: {HC_TOLERANCE}')
         lines.append(f'    timeout: {HC_TIMEOUT}')
         lines.append("")
+
+    # Auto-select group (url-test): automatically picks the fastest node.
+    # Placed last so it does not shift the proxy-groups index order relied on by
+    # the global-template merge (groups[0]=主策略组, groups[1]=AI 策略组).
+    lines.append(f'  - name: "自动选择"')
+    lines.append(f'    type: url-test')
+    lines.append(f'    proxies:')
+    for p in proxies:
+        lines.append(f'      - "{p["name"]}"')
+    lines.append(f'      - DIRECT')
+    lines.append(f'    url: {HC_URL}')
+    lines.append(f'    interval: {HC_INTERVAL}')
+    lines.append(f'    tolerance: {HC_TOLERANCE}')
+    lines.append(f'    timeout: {HC_TIMEOUT}')
+    lines.append("")
 
     # Rules
     _emit_rules(lines, group_name, rules_mode, ai_routing, ai_japan, ai_hongkong)
@@ -1594,11 +1621,15 @@ def get_client_ip():
 # Routes — Public
 # ---------------------------------------------------------------------------
 
-def _parse_links_and_subs(raw_links, sub_urls):
+def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     """Parse raw proxy links and subscription URLs into a list of proxies.
 
     Shared by /api/convert, /api/admin/records/<id>/edit, and /refresh.
     Returns (proxies, errors).
+
+    If `xui_sub_url` is provided (a 3x-ui subscription link), it is used as the
+    sole source of node links — v2c auto-fetches whatever the user configured /
+    modified in 3x-ui, so manual re-pasting is no longer needed.
     """
     proxies = []
     errors = []
@@ -1614,6 +1645,29 @@ def _parse_links_and_subs(raw_links, sub_urls):
         proxies.append(proxy)
 
     SUPPORTED_PREFIXES = ("vless://", "vmess://", "ss://", "ssr://", "trojan://")
+
+    # ---- 3x-ui 订阅优先：自动获取 3x-ui 中已配置/修改的链接 ----
+    if xui_sub_url and xui_sub_url.strip():
+        for url_line in xui_sub_url.splitlines():
+            url = url_line.strip()
+            if not url:
+                continue
+            if not url.startswith("http://") and not url.startswith("https://"):
+                errors.append(f"无效 3x-ui 订阅地址: {url[:80]}")
+                continue
+            try:
+                links = fetch_subscription(url)
+                if not links:
+                    errors.append(f"3x-ui 订阅未返回任何节点: {url[:50]}")
+                for link in links:
+                    proxy = parse_proxy(link)
+                    if proxy:
+                        add_proxy(proxy)
+                    else:
+                        errors.append(f"3x-ui 节点解析失败: {link[:80]}")
+            except Exception as e:
+                errors.append(f"3x-ui 订阅获取失败 ({url[:50]}): {str(e)}")
+        return proxies, errors
 
     if raw_links:
         for line in raw_links.splitlines():
@@ -1791,6 +1845,7 @@ def convert():
 
     raw_links = data.get("links", "").strip()
     sub_urls = data.get("subscriptions", "").strip()
+    xui_sub_url = data.get("xui_sub_url", "").strip()
     config = data.get("config", {}) or {}
     custom_name = data.get("config_name", "").strip()
 
@@ -1799,11 +1854,11 @@ def convert():
     # override per-generation; AI on/off + node names come from the request below.
     gcfg = load_global_config()
     for key in ("port", "allow_lan", "log_level", "group_name", "rules_mode",
-                "ai_preference", "hc_url", "hc_interval", "hc_tolerance", "hc_timeout"):
+                "ai_preference", "default_to_auto", "hc_url", "hc_interval", "hc_tolerance", "hc_timeout"):
         if key not in config or config.get(key) in (None, ""):
             config[key] = gcfg.get(key)
 
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -1868,6 +1923,7 @@ def convert():
     record_conversion(
         original_links=raw_links,
         subscription_urls=sub_urls,
+        xui_sub_url=xui_sub_url,
         yaml_content=yaml_content,
         client_ip=client_ip,
         token=token,
@@ -2073,7 +2129,7 @@ def admin_records():
     # update_count: how many times clients (Clash Party etc.) have pulled
     # this record's subscription URL /d/<token>
     cursor = conn.execute(
-        f"""SELECT r.id, r.created_at, r.updated_at, r.original_links, r.subscription_urls, r.client_ip,
+        f"""SELECT r.id, r.created_at, r.updated_at, r.original_links, r.subscription_urls, r.xui_sub_url, r.client_ip,
                   r.token, r.node_count, r.config_name, r.update_count,
                   length(r.yaml_content) as yaml_size
            FROM conversion_records r {where_sql}
@@ -2152,6 +2208,7 @@ def admin_record_detail(record_id):
         "updated_at": row["updated_at"] if "updated_at" in row.keys() and row["updated_at"] else row["created_at"],
         "original_links": row["original_links"],
         "subscription_urls": row["subscription_urls"],
+        "xui_sub_url": row["xui_sub_url"] if "xui_sub_url" in row.keys() else "",
         "yaml_content": row["yaml_content"],
         "client_ip": row["client_ip"],
         "token": row["token"],
@@ -2284,14 +2341,15 @@ def admin_edit_record(record_id):
 
     raw_links = data.get("links", "").strip()
     sub_urls = data.get("subscriptions", "").strip()
+    xui_sub_url = data.get("xui_sub_url", "").strip()
     new_config_name = data.get("config_name", "").strip()
     rules_mode = data.get("rules_mode", "basic")
     ai_routing = bool(data.get("ai_routing", False))
     ai_japan = (data.get("ai_japan", "") or "").strip()
     ai_hongkong = (data.get("ai_hongkong", "") or "").strip()
 
-    if not raw_links and not sub_urls:
-        return jsonify({"error": "请输入代理链接或订阅地址"}), 400
+    if not raw_links and not sub_urls and not xui_sub_url:
+        return jsonify({"error": "请输入代理链接、订阅地址或 3x-ui 订阅链接"}), 400
 
     # Fetch the existing record
     conn = get_db()
@@ -2305,7 +2363,7 @@ def admin_edit_record(record_id):
     filename = row["filename"]
 
     # Parse new links
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -2350,10 +2408,10 @@ def admin_edit_record(record_id):
     now = datetime.datetime.now().isoformat()
     conn.execute(
         """UPDATE conversion_records
-           SET original_links = ?, subscription_urls = ?, yaml_content = ?,
+           SET original_links = ?, subscription_urls = ?, xui_sub_url = ?, yaml_content = ?,
                node_count = ?, config_name = ?, ai_routing = ?, ai_japan = ?, ai_hongkong = ?, updated_at = ?
            WHERE id = ?""",
-        (raw_links, sub_urls, yaml_content, len(proxies), config_name,
+        (raw_links, sub_urls, xui_sub_url, yaml_content, len(proxies), config_name,
          1 if ai_routing else 0, ai_japan, ai_hongkong, now, record_id)
     )
     conn.commit()
@@ -2401,18 +2459,19 @@ def admin_refresh_record(record_id):
     filename = row["filename"]
     raw_links = row["original_links"] or ""
     sub_urls = row["subscription_urls"] or ""
+    xui_sub_url = row["xui_sub_url"] or ""
 
     # Preserve stored AI routing settings across refresh
     ai_routing = bool(row["ai_routing"])
     ai_japan = row["ai_japan"] or ""
     ai_hongkong = row["ai_hongkong"] or ""
 
-    if not raw_links and not sub_urls:
+    if not raw_links and not sub_urls and not xui_sub_url:
         conn.close()
         return jsonify({"error": "该记录没有原始链接数据，无法刷新"}), 400
 
     # Re-parse using stored links
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls)
+    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "重新解析失败，未找到有效节点"
@@ -2492,11 +2551,12 @@ def admin_refresh_all_records():
         record_id = row["id"]
         raw_links = row["original_links"] or ""
         sub_urls = row["subscription_urls"] or ""
+        xui_sub_url = row["xui_sub_url"] or ""
         try:
-            if not raw_links and not sub_urls:
+            if not raw_links and not sub_urls and not xui_sub_url:
                 skipped.append({"id": record_id, "error": "无原始链接数据"})
                 continue
-            proxies, _errors = _parse_links_and_subs(raw_links, sub_urls)
+            proxies, _errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
             if not proxies:
                 skipped.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
