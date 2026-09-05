@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.23"
+APP_VERSION = "v1.6.24"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -320,8 +320,14 @@ def apply_template_to_record(template_text, record_yaml):
 # ---------------------------------------------------------------------------
 
 def get_db():
-    """Get a SQLite connection (row factory for dict-like access)."""
-    conn = sqlite3.connect(DB_PATH)
+    """Get a SQLite connection (row factory for dict-like access).
+
+    timeout=30 raises the busy-wait from the 5s default: concurrent writers
+    (auto-migrate thread, /d/<token> pull counters, admin refresh) now wait
+    for each other instead of raising "database is locked" (which used to
+    bubble up as an HTML 500 → client-side "not valid JSON").
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -2548,7 +2554,18 @@ def admin_refresh_all_records():
     basic_cfg = global_basic_config(gcfg)
 
     conn = get_db()
-    rows = conn.execute("SELECT * FROM conversion_records").fetchall()
+    # Retry the initial read: if another writer (auto-migrate thread, client
+    # pull counter) holds the DB, wait it out instead of returning an HTML 500.
+    rows = None
+    for attempt in range(3):
+        try:
+            rows = conn.execute("SELECT * FROM conversion_records").fetchall()
+            break
+        except sqlite3.OperationalError:
+            if attempt == 2:
+                conn.close()
+                return jsonify({"success": False, "error": "数据库忙，请稍后重试"}), 503
+            time.sleep(1)
 
     success = 0
     ai_enabled = 0
@@ -2602,13 +2619,24 @@ def admin_refresh_all_records():
                 (yaml_content, len(proxies), 1 if cfg["ai_routing"] else 0,
                  cfg["ai_japan"], cfg["ai_hongkong"], now, record_id)
             )
+            # Commit PER RECORD (short transaction). The old code held one
+            # write transaction across the whole loop — including network
+            # fetches of xui subscriptions — which collided with the
+            # auto-migrate thread / pull counters and raised
+            # "database is locked" at the final commit → HTML 500.
+            conn.commit()
             success += 1
             if cfg["ai_routing"]:
                 ai_enabled += 1
         except Exception as e:  # noqa: BLE001 - keep batch going on single failure
             skipped.append({"id": record_id, "error": str(e)[:100]})
 
-    conn.commit()
+    # Per-record commits above mean this is a no-op unless a late error path
+    # left pending writes; keep it guarded so a lock can never turn into HTML.
+    try:
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
     conn.close()
 
     msg = f"已批量刷新 {success} 条记录（{gcfg['rules_mode']} 模式，其中 {ai_enabled} 条已启用 AI 分流）"
