@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.33"
+APP_VERSION = "v1.6.34"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3157,14 +3157,32 @@ def _fetch_panel_inbounds(url, user, pwd):
         return None
 
 
-def _extract_yaml_proxy_targets(yaml_text):
-    """Parse a Clash/Mihomo YAML and return a set of (server, port) tuples.
+def _ib_settings(ib):
+    """Return the parsed `settings` dict of a 3x-ui inbound.
 
-    Used as a fallback when xui_sub_url is empty (vless-link tokens):
-    we match proxies by their destination address to 3x-ui inbound listen ports.
+    The inbounds-list API returns `settings` as a JSON-serialized STRING
+    (gorm JSON column), not a dict — parse it defensively.
+    """
+    import json as _json
+    s = ib.get("settings")
+    if isinstance(s, str) and s.strip():
+        try:
+            v = _json.loads(s)
+            return v if isinstance(v, dict) else {}
+        except Exception:
+            return {}
+    return s if isinstance(s, dict) else {}
+
+
+def _extract_yaml_proxy_targets(yaml_text):
+    """Parse a Clash/Mihomo YAML and return {(server, port): set(uuids)}.
+
+    Used for client-level traffic matching without subscription links:
+    each proxy's uuid equals the 3x-ui client `id` in settings.clients, so we
+    can resolve the exact client (and its clientStats) for every node.
     """
     import yaml as _yaml
-    targets = set()
+    targets = {}
     try:
         cfg = _yaml.safe_load(yaml_text)
         if not isinstance(cfg, dict):
@@ -3172,13 +3190,18 @@ def _extract_yaml_proxy_targets(yaml_text):
         for p in (cfg.get("proxies") or []):
             if not isinstance(p, dict):
                 continue
-            s = p.get("server", "")
+            s = str(p.get("server", "") or "")
             port = p.get("port")
-            if s and port is not None:
-                try:
-                    targets.add((str(s), int(port)))
-                except (ValueError, TypeError):
-                    continue
+            uuid = str(p.get("uuid", "") or "")
+            if not s or port is None:
+                continue
+            try:
+                key = (s, int(port))
+            except (ValueError, TypeError):
+                continue
+            targets.setdefault(key, set())
+            if uuid:
+                targets[key].add(uuid)
     except Exception:
         pass
     return targets
@@ -3273,6 +3296,7 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
 
     try:
         _queried = {}  # panel url -> inbounds payload (de-dup queries)
+        _counted = set()  # (panel_url, inbound_id, client_email) guard vs double count
         for src, sid in targets:
             url = (src.get("url") or "").rstrip("/")
             user = src.get("username", "")
@@ -3291,93 +3315,153 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
             if q:
                 quota_override += q
 
+            from urllib.parse import urlparse as _uparse
+            panel_host = ""
+            try:
+                panel_host = _uparse(url).hostname or ""
+            except Exception:
+                pass
+
             for ib in (data.get("obj") or []):
                 if not isinstance(ib, dict):
                     continue
-                if sid is None:
-                    if _yaml_targets is not None:
-                        # YAML proxy match: only count inbounds whose listen
-                        # address:port matches a proxy in the generated YAML.
-                        ib_port = ib.get("port")
-                        ib_addr = ib.get("listen", "") or ""
-                        # Resolve inbound host — try settings.streamSettings or fallback
-                        ss = ib.get("settings") or {}
-                        stream = (ss.get("streamSettings") or {}) if isinstance(ss, dict) else {}
-                        real_host = None
-                        if isinstance(stream, dict):
-                            for net_key in ("ws", "grpc", "http", "tcp"):
-                                net_cfg = stream.get(net_key) or {}
-                                if isinstance(net_cfg, dict):
-                                    h = net_cfg.get("server") or net_cfg.get("dest") or ""
-                                    if h:
-                                        real_host = str(h)
-                                        break
-                        if not real_host:
-                            real_host = ib_addr
-                        matched_proxy = False
-                        if ib_port is not None:
-                            try:
-                                p = int(ib_port)
-                                # Exact (host, port) match first
-                                if (real_host, p) in _yaml_targets:
-                                    matched_proxy = True
-                                else:
-                                    # Fallback: proxies often use the panel IP as
-                                    # server while the inbound object doesn't repeat it.
-                                    # Match by panel hostname + inbound port.
-                                    from urllib.parse import urlparse as _uparse
-                                    try:
-                                        ph = _uparse(url).hostname or ""
-                                        if ph and (ph, p) in _yaml_targets:
-                                            matched_proxy = True
-                                    except Exception:
-                                        pass
-                            except (ValueError, TypeError):
-                                pass
-                        if not matched_proxy:
-                            continue  # skip inbounds not referenced by this YAML
+                ib_settings = _ib_settings(ib)
+                clients = [c for c in (ib_settings.get("clients") or [])
+                           if isinstance(c, dict)]
+                stats = [c for c in (ib.get("clientStats") or [])
+                         if isinstance(c, dict)]
+                ib_key = str(ib.get("id") or ib.get("port") or id(ib))
+
+                # ---- Accumulation helpers (nonlocal into this function) ----
+                # We collect (up, down, total) contributions and add at the end
+                # of each inbound iteration.
+
+                contrib_up = contrib_down = contrib_tot = 0
+                counted_any = False
+
+                def _add_client_stats(clist):
+                    nonlocal contrib_up, contrib_down, contrib_tot, counted_any  # noqa
+                    got = False
+                    for c in clist:
+                        key = (url, ib_key, c.get("email") or c.get("subId") or id(c))
+                        if key in _counted:
+                            continue
+                        _counted.add(key)
+                        contrib_up += c.get("up", 0) or 0
+                        contrib_down += c.get("down", 0) or 0
+                        contrib_tot += c.get("total", 0) or 0
+                        got = True
+                    if got:
+                        counted_any = True
+
+                def _add_alloc_only(clist):
+                    """Client known but no clientStats row yet — still show its
+                    configured quota (totalGB) so the allocation isn't lost."""
+                    nonlocal contrib_tot, counted_any  # noqa
+                    got = False
+                    for c in clist:
+                        key = (url, ib_key, c.get("email") or c.get("subId") or id(c))
+                        if key in _counted:
+                            continue
+                        _counted.add(key)
+                        contrib_tot += c.get("totalGB", 0) or 0
+                        got = True
+                    if got:
+                        counted_any = True
+
+                def _add_inbound_level():
+                    nonlocal contrib_up, contrib_down, contrib_tot, counted_any  # noqa
+                    key = (url, ib_key, "__inbound__")
+                    if key in _counted:
+                        return
+                    _counted.add(key)
+                    contrib_up += ib.get("up", 0) or 0
+                    contrib_down += ib.get("down", 0) or 0
+                    contrib_tot += ib.get("total", 0) or 0
+                    for c in stats:
+                        ck = (url, ib_key, c.get("email") or c.get("subId") or id(c))
+                        if ck in _counted:
+                            continue
+                        _counted.add(ck)
+                        contrib_up += c.get("up", 0) or 0
+                        contrib_down += c.get("down", 0) or 0
+                        contrib_tot += c.get("total", 0) or 0
+                    counted_any = True
+
+                # ---- Path 1: subId from subscription links ----
+                if sid is not None:
+                    matched = [c for c in stats if c.get("subId") == sid]
+                    if matched:
+                        _add_client_stats(matched)
                     else:
-                        # No YAML content and no subId — don't sum anything
-                        # (would give misleading total like 1.85T)
-                        continue
+                        # sid -> settings.clients -> email -> clientStats
+                        via_clients = [c for c in clients if c.get("subId") == sid]
+                        if via_clients:
+                            emails = {c.get("email") for c in via_clients}
+                            m2 = [c for c in stats if c.get("email") in emails]
+                            if m2:
+                                _add_client_stats(m2)
+                            else:
+                                _add_alloc_only(via_clients)
+                        else:
+                            ib_sub = ib_settings.get("subId") or ib.get("subId")
+                            if ib_sub == sid:
+                                _add_inbound_level()
+                            # else: fall through to uuid matching below
 
-                    up = ib.get("up", 0) or 0
-                    down = ib.get("down", 0) or 0
-                    tot = ib.get("total", 0) or 0
-                    for c in (ib.get("clientStats") or []):
-                        up += c.get("up", 0) or 0
-                        down += c.get("down", 0) or 0
-                        tot += c.get("total", 0) or 0
-                    total_up += up
-                    total_down += down
-                    panel_alloc += tot
-                    continue
+                # ---- Path 2: YAML proxy uuid matching (client-level) ----
+                if not counted_any and _yaml_targets:
+                    ib_port = ib.get("port")
+                    if ib_port is not None:
+                        try:
+                            p = int(ib_port)
+                        except (ValueError, TypeError):
+                            p = None
+                        if p is not None:
+                            match_key = None
+                            # exact (listen/stream host, port)
+                            real_host = ib.get("listen", "") or ""
+                            ss = ib_settings  # settings may hold streamSettings
+                            stream = (ss.get("streamSettings") or {}) if isinstance(ss, dict) else {}
+                            if isinstance(stream, dict):
+                                for net_key in ("ws", "grpc", "http", "tcp"):
+                                    net_cfg = stream.get(net_key) or {}
+                                    if isinstance(net_cfg, dict):
+                                        h = net_cfg.get("server") or net_cfg.get("dest") or ""
+                                        if h:
+                                            real_host = str(h)
+                                            break
+                            for key in ((str(real_host), p), (panel_host, p)):
+                                if key in _yaml_targets:
+                                    match_key = key
+                                    break
+                            if match_key is not None:
+                                uuids = _yaml_targets[match_key]
+                                # clientStats may carry uuid directly
+                                direct = [c for c in stats
+                                          if c.get("uuid") and c.get("uuid") in uuids]
+                                # resolve via settings.clients: id(uuid) -> email/subId
+                                via_uuid = [c for c in clients if c.get("id") in uuids]
+                                if direct or via_uuid:
+                                    emails = ({c.get("email") for c in direct} |
+                                              {c.get("email") for c in via_uuid})
+                                    subids = {c.get("subId") for c in via_uuid}
+                                    m2 = [c for c in stats
+                                          if c.get("email") in emails or c.get("subId") in subids]
+                                    if m2:
+                                        _add_client_stats(m2)
+                                    else:
+                                        _add_alloc_only(via_uuid or direct)
+                                else:
+                                    # Can't pin the exact client — inbound-level
+                                    # fallback (best we can do without identity)
+                                    _add_inbound_level()
 
-                # Per-client match by subId (clientStats carries live traffic)
-                matched = [c for c in (ib.get("clientStats") or [])
-                           if isinstance(c, dict) and c.get("subId") == sid]
-                if matched:
-                    for c in matched:
-                        total_up += c.get("up", 0) or 0
-                        total_down += c.get("down", 0) or 0
-                        panel_alloc += c.get("total", 0) or 0
-                    continue
-                # Client present in settings but no clientStats row yet
-                client_subids = [c.get("subId") for c in (ib.get("settings", {}).get("clients") or [])
-                                 if isinstance(c, dict)]
-                if sid in client_subids:
-                    total_up += ib.get("up", 0) or 0
-                    total_down += ib.get("down", 0) or 0
-                    panel_alloc += ib.get("total", 0) or 0
-                    continue
-                # Inbound-level subId (whole inbound is this subscription)
-                ib_sub = (ib.get("settings", {}) or {}).get("subId") or ib.get("subId")
-                if ib_sub == sid:
-                    total_up += ib.get("up", 0) or 0
-                    total_down += ib.get("down", 0) or 0
-                    panel_alloc += ib.get("total", 0) or 0
-                    continue
-                # subId not in this inbound -> not this token's traffic; skip
+                if counted_any:
+                    total_up += contrib_up
+                    total_down += contrib_down
+                    panel_alloc += contrib_tot
+                # neither sid nor yaml matched this inbound -> skip entirely
 
         result = {
             "upload": total_up,
