@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.28"
+APP_VERSION = "v1.6.29"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -2071,7 +2071,7 @@ def serve_by_token(token):
     display_name = token
     try:
         conn = get_db()
-        cursor = conn.execute("SELECT config_name FROM conversion_records WHERE token = ?", (token,))
+        cursor = conn.execute("SELECT config_name, xui_sub_url FROM conversion_records WHERE token = ?", (token,))
         row = cursor.fetchone()
         # Count this client pull as one subscription update
         # (Clash Party / Mihomo importing or refreshing the subscription URL)
@@ -2113,9 +2113,11 @@ def serve_by_token(token):
         f'attachment; filename="{ascii_fallback}.yaml"; '
         f"filename*=UTF-8''{encoded_name}"
     )
-    # Fetch VPS traffic from 3x-ui panel APIs for usage display in client
+    # Fetch VPS traffic from the 3x-ui panel this config was generated from,
+    # so the displayed allocated/used traffic matches *this* subscription.
     gcfg = load_global_config()
-    traffic = _fetch_vps_traffic(gcfg)
+    scope_base = (row or {}).get("xui_sub_url") if row else None
+    traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base)
     response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
     return response
 
@@ -3056,7 +3058,22 @@ def _parse_quota(s):
         return None
 
 
-def _fetch_vps_traffic(gcfg):
+def _normalize_panel_base(u):
+    """Strip /sub/, /clash/, /json/ tails + trailing slash + fragment/query,
+    lowercase, to compare a 3x-ui panel URL with a subscription link base."""
+    import urllib.parse as _up
+    u = (u or "").strip()
+    if not u:
+        return ""
+    u = u.split("#", 1)[0].split("?", 1)[0]
+    for tail in ("/sub/", "/clash/", "/json/"):
+        idx = u.find(tail)
+        if idx != -1:
+            u = u[:idx]
+    return u.rstrip("/").lower()
+
+
+def _fetch_vps_traffic(gcfg, scope_base=None):
     """Aggregate inbound traffic from configured 3x-ui panel APIs.
 
     3x-ui v3.4.2 requires a CSRF token for the POST /login endpoint, so we
@@ -3069,16 +3086,24 @@ def _fetch_vps_traffic(gcfg):
     """
     import time as _time
     now = _time.time()
-    if _traffic_cache["data"] is not None and now - _traffic_cache["ts"] < _traffic_cache["ttl"]:
+    if (_traffic_cache["data"] is not None and now - _traffic_cache["ts"] < _traffic_cache["ttl"]
+            and _traffic_cache.get("scope") == scope_base):
         return _traffic_cache["data"]
 
     sources = gcfg.get("vps_traffic_sources") or []
     if not sources:
         return None
+    if scope_base:
+        _sb = _normalize_panel_base(scope_base)
+        _matched = [s for s in sources
+                    if _normalize_panel_base(s.get("url")) == _sb]
+        if _matched:
+            sources = _matched
 
     total_up = 0
     total_down = 0
-    total_quota = 0
+    panel_alloc = 0
+    quota_override = 0
     saw_any = False
     try:
         import json as _json
@@ -3138,11 +3163,19 @@ def _fetch_vps_traffic(gcfg):
                 if not isinstance(data, dict) or not data.get("success"):
                     continue
                 for ib in (data.get("obj") or []):
-                    total_up += ib.get("up", 0) or 0
-                    total_down += ib.get("down", 0) or 0
+                    up = ib.get("up", 0) or 0
+                    down = ib.get("down", 0) or 0
+                    tot = ib.get("total", 0) or 0
+                    for c in (ib.get("clientStats") or []):
+                        up += c.get("up", 0) or 0
+                        down += c.get("down", 0) or 0
+                        tot += c.get("total", 0) or 0
+                    total_up += up
+                    total_down += down
+                    panel_alloc += tot
                 q = _parse_quota(src.get("quota"))
                 if q:
-                    total_quota += q
+                    quota_override += q
                 saw_any = True
             except Exception as e:  # noqa: BLE001 - skip failing source
                 app.logger.warning("[vps-traffic] source %s error: %s", url, e)
@@ -3151,22 +3184,27 @@ def _fetch_vps_traffic(gcfg):
         result = {
             "upload": total_up,
             "download": total_down,
-            "total": total_quota if total_quota > 0 else (total_up + total_down),
+            "total": (panel_alloc if panel_alloc > 0 else quota_override),
         } if saw_any else None
         _traffic_cache["data"] = result
         _traffic_cache["ts"] = now
+        _traffic_cache["scope"] = scope_base
         return result
     except Exception:  # noqa: BLE001
         return None
 
 
 def _format_subscription_userinfo(traffic):
-    """Format traffic dict into Subscription-Userinfo header value."""
+    """Format traffic dict into Subscription-Userinfo header value.
+
+    `total` is the panel-configured traffic limit (bytes); 0 means no limit was
+    set on the 3x-ui panel, so we do NOT fake a total from the used amount.
+    """
     if traffic is None:
         return "upload=0; download=0; total=0; expire=0"
     up = traffic.get("upload", 0) or 0
     down = traffic.get("download", 0) or 0
-    total = traffic.get("total", 0) or (up + down)
+    total = traffic.get("total", 0) or 0
     return f"upload={up}; download={down}; total={total}; expire=0"
 
 
