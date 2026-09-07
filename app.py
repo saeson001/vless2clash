@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.31"
+APP_VERSION = "v1.6.32"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3073,6 +3073,28 @@ def _normalize_panel_base(u):
     return u.rstrip("/").lower()
 
 
+def _panel_identity(url):
+    """Return a port-agnostic panel identity string (scheme + host + path).
+
+    3x-ui exposes the same panel on two ports: *webPort* (UI/login) and
+    *subPort* (subscriptions).  A subscription link uses subPort while the
+    traffic-source config naturally uses webPort.  Stripping the port lets
+    them match as the same panel.
+    """
+    u = _normalize_panel_base(url)
+    if not u:
+        return ""
+    try:
+        p = __import__("urllib.parse", fromlist=[""]).urlparse(u)
+        # Rebuild without port: scheme://hostname/path
+        base = "%s://%s" % (p.scheme or "http", p.hostname or "")
+        if p.path and p.path != "/":
+            base += p.path.rstrip("/")
+        return base.lower()
+    except Exception:
+        return u
+
+
 def _extract_subid(url):
     """Extract the 3x-ui subscription id (subId) from a /sub/, /clash/ or
     /json/ link. e.g. http://host:8284/base/sub/ABC123 -> 'ABC123'."""
@@ -3172,12 +3194,20 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
         for link in links:
             pb = _normalize_panel_base(link)
             sid = _extract_subid(link)
+            link_identity = _panel_identity(link)
             for src in sources:
-                if _normalize_panel_base(src.get("url")) == pb:
+                if _panel_identity(src.get("url")) == link_identity:
                     targets.append((src, sid))
                     break
         if not targets:
+            app.logger.warning(
+                "[vps-traffic] no panel matched for scope (falling back to all): "
+                "links=%s source_identities=%s",
+                links[:3], [_panel_identity(s.get("url")) for s in sources])
             targets = [(s, None) for s in sources]  # no match -> sum all (legacy)
+        else:
+            app.logger.info(
+                "[vps-traffic] matched %d link(s) for this token", len(targets))
     else:
         targets = [(s, None) for s in sources]
 
