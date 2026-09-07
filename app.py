@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.34"
+APP_VERSION = "v1.6.35"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -2119,6 +2119,12 @@ def serve_by_token(token):
     scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
     traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
     response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
+    # Diagnostics: per-node contribution, so you can tell at a glance which
+    # VPS/clients were counted (and which were skipped because no panel was
+    # configured for them).  Visible via: curl -I http://host/d/<token>
+    detail = _format_traffic_detail(traffic)
+    if detail:
+        response.headers["X-Traffic-Detail"] = detail
     return response
 
 
@@ -3277,6 +3283,7 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
     panel_alloc = 0
     quota_override = 0
     saw_any = False
+    _matched_nodes = []  # per-node breakdown for diagnostics
 
     # When we have no subId links (vless-link tokens), try YAML proxy matching
     _yaml_targets = None
@@ -3461,12 +3468,32 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
                     total_up += contrib_up
                     total_down += contrib_down
                     panel_alloc += contrib_tot
+                    # Per-node breakdown for diagnostics (X-Traffic-Detail header)
+                    _matched_nodes.append({
+                        "panel": url,
+                        "node": ib.get("remark") or "",
+                        "port": ib.get("port"),
+                        "up": contrib_up,
+                        "down": contrib_down,
+                        "total": contrib_tot,
+                    })
                 # neither sid nor yaml matched this inbound -> skip entirely
+
+        # Warn about YAML proxies whose (server, port) never matched a panel —
+        # this is why a token spanning 3 VPS used to report only 1 node's quota.
+        if _yaml_targets and _matched_nodes:
+            _hit = {(n.get("port")) for n in _matched_nodes}
+            _miss = [f"{h}:{p}" for (h, p) in _yaml_targets if p not in _hit]
+            if _miss:
+                app.logger.warning(
+                    "[vps-traffic] %d YAML proxy(s) had NO configured panel: %s "
+                    "-> add them to 总体配置/ VPS 流量源", len(_miss), _miss[:6])
 
         result = {
             "upload": total_up,
             "download": total_down,
             "total": (panel_alloc if panel_alloc > 0 else quota_override),
+            "nodes": _matched_nodes,
         } if saw_any else None
         _traffic_cache["data"] = result
         _traffic_cache["ts"] = now
@@ -3474,6 +3501,42 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
         return result
     except Exception:  # noqa: BLE001
         return None
+
+
+def _human_bytes(n):
+    """Compact human readable size for diagnostics output."""
+    try:
+        n = float(n or 0)
+    except (TypeError, ValueError):
+        return "0B"
+    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+        if n < 1024 or unit == "PB":
+            return f"{n:.0f}{unit}" if unit == "B" else f"{n:.2f}{unit}"
+        n /= 1024.0
+    return f"{n:.2f}PB"
+
+
+def _format_traffic_detail(traffic):
+    """Build the X-Traffic-Detail header: which node contributed how much.
+
+    Example:
+      HK:39999 used=10.00GB quota=200.00GB; JP:29214 used=1.00GB quota=200.00GB
+    Lets you verify with `curl -I` that every node in the YAML is counted
+    (a missing node means its panel isn't in 总体配置 → VPS 流量源).
+    """
+    if not traffic:
+        return ""
+    nodes = traffic.get("nodes") or []
+    if not nodes:
+        return ""
+    parts = []
+    for n in nodes:
+        label = n.get("node") or ""
+        port = n.get("port")
+        name = f"{label}:{port}" if label else str(port or "?")
+        used = (n.get("up") or 0) + (n.get("down") or 0)
+        parts.append(f"{name} used={_human_bytes(used)} quota={_human_bytes(n.get('total'))}")
+    return "; ".join(parts)
 
 
 def _format_subscription_userinfo(traffic):
