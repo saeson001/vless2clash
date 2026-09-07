@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.32"
+APP_VERSION = "v1.6.33"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -2117,7 +2117,7 @@ def serve_by_token(token):
     # so the displayed allocated/used traffic matches *this* subscription.
     gcfg = load_global_config()
     scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
-    traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base)
+    traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
     response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
     return response
 
@@ -3157,7 +3157,34 @@ def _fetch_panel_inbounds(url, user, pwd):
         return None
 
 
-def _fetch_vps_traffic(gcfg, scope_base=None):
+def _extract_yaml_proxy_targets(yaml_text):
+    """Parse a Clash/Mihomo YAML and return a set of (server, port) tuples.
+
+    Used as a fallback when xui_sub_url is empty (vless-link tokens):
+    we match proxies by their destination address to 3x-ui inbound listen ports.
+    """
+    import yaml as _yaml
+    targets = set()
+    try:
+        cfg = _yaml.safe_load(yaml_text)
+        if not isinstance(cfg, dict):
+            return targets
+        for p in (cfg.get("proxies") or []):
+            if not isinstance(p, dict):
+                continue
+            s = p.get("server", "")
+            port = p.get("port")
+            if s and port is not None:
+                try:
+                    targets.add((str(s), int(port)))
+                except (ValueError, TypeError):
+                    continue
+    except Exception:
+        pass
+    return targets
+
+
+def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
     """Aggregate traffic for the subscription this config was generated from.
 
     3x-ui v3.4.2 needs a CSRF token for POST /login, so we fetch /csrf-token
@@ -3169,9 +3196,10 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
     embedded in the link. Only that client's up/down/total count, so a token
     spanning three 200G clients shows 600G -- not the whole panels' 2T.
 
-    If scope_base is empty (no xui_sub_url) or no link matches a configured
-    panel, we fall back to summing every configured panel's inbounds (legacy
-    behaviour) so the header still carries a usable number.
+    When scope_base is empty (vless-link tokens have no xui_sub_url) and
+    `yaml_content` is provided, we extract each proxy's (server, port) from
+    the YAML and match against inbound listen addresses/ports instead of
+    falling back to summing every configured panel's inbounds.
 
     Returns dict {"upload", "download", "total"} (bytes) or None on failure.
     Results are cached for `ttl` seconds keyed by scope_base.
@@ -3179,8 +3207,14 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
     import time as _time
     import re as _re
     now = _time.time()
+    _cache_key = scope_base
+    if yaml_content and not _cache_key:
+        # For vless-link tokens (empty scope_base), hash YAML content so
+        # different subscriptions don't share the same cache entry.
+        import hashlib as _hashlib
+        _cache_key = "yaml:" + _hashlib.md5(yaml_content.encode("utf-8", errors="replace")).hexdigest()[:12]
     if (_traffic_cache["data"] is not None and now - _traffic_cache["ts"] < _traffic_cache["ttl"]
-            and _traffic_cache.get("scope") == scope_base):
+            and _traffic_cache.get("scope") == _cache_key):
         return _traffic_cache["data"]
 
     sources = gcfg.get("vps_traffic_sources") or []
@@ -3201,21 +3235,42 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
                     break
         if not targets:
             app.logger.warning(
-                "[vps-traffic] no panel matched for scope (falling back to all): "
+                "[vps-traffic] no panel matched for scope (trying YAML proxy match): "
                 "links=%s source_identities=%s",
                 links[:3], [_panel_identity(s.get("url")) for s in sources])
-            targets = [(s, None) for s in sources]  # no match -> sum all (legacy)
+            # Don't fall back to sum-all (gives misleading 1.85T for vless tokens).
+            # Instead, pass empty targets — the inbound loop below will use
+            # yaml_content-based (server,port) matching if available.
+            targets = []
         else:
             app.logger.info(
                 "[vps-traffic] matched %d link(s) for this token", len(targets))
     else:
-        targets = [(s, None) for s in sources]
+        # No xui_sub_url (vless-link token) — will try YAML proxy matching below
+        targets = []
 
     total_up = 0
     total_down = 0
     panel_alloc = 0
     quota_override = 0
     saw_any = False
+
+    # When we have no subId links (vless-link tokens), try YAML proxy matching
+    _yaml_targets = None
+    if not targets and yaml_content:
+        _yaml_targets = _extract_yaml_proxy_targets(yaml_content)
+        if _yaml_targets:
+            app.logger.info(
+                "[vps-traffic] YAML proxy match: %d unique (server,port) extracted",
+                len(_yaml_targets))
+            # Query all panels — we'll filter inbounds by (server,port) below
+            targets = [(s, None) for s in sources]
+        else:
+            app.logger.warning("[vps-traffic] YAML has no parseable proxies")
+
+    if not targets:  # Nothing to do at all
+        return None
+
     try:
         _queried = {}  # panel url -> inbounds payload (de-dup queries)
         for src, sid in targets:
@@ -3240,7 +3295,52 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
                 if not isinstance(ib, dict):
                     continue
                 if sid is None:
-                    # Legacy: sum the whole inbound (inbound + all its clients)
+                    if _yaml_targets is not None:
+                        # YAML proxy match: only count inbounds whose listen
+                        # address:port matches a proxy in the generated YAML.
+                        ib_port = ib.get("port")
+                        ib_addr = ib.get("listen", "") or ""
+                        # Resolve inbound host — try settings.streamSettings or fallback
+                        ss = ib.get("settings") or {}
+                        stream = (ss.get("streamSettings") or {}) if isinstance(ss, dict) else {}
+                        real_host = None
+                        if isinstance(stream, dict):
+                            for net_key in ("ws", "grpc", "http", "tcp"):
+                                net_cfg = stream.get(net_key) or {}
+                                if isinstance(net_cfg, dict):
+                                    h = net_cfg.get("server") or net_cfg.get("dest") or ""
+                                    if h:
+                                        real_host = str(h)
+                                        break
+                        if not real_host:
+                            real_host = ib_addr
+                        matched_proxy = False
+                        if ib_port is not None:
+                            try:
+                                p = int(ib_port)
+                                # Exact (host, port) match first
+                                if (real_host, p) in _yaml_targets:
+                                    matched_proxy = True
+                                else:
+                                    # Fallback: proxies often use the panel IP as
+                                    # server while the inbound object doesn't repeat it.
+                                    # Match by panel hostname + inbound port.
+                                    from urllib.parse import urlparse as _uparse
+                                    try:
+                                        ph = _uparse(url).hostname or ""
+                                        if ph and (ph, p) in _yaml_targets:
+                                            matched_proxy = True
+                                    except Exception:
+                                        pass
+                            except (ValueError, TypeError):
+                                pass
+                        if not matched_proxy:
+                            continue  # skip inbounds not referenced by this YAML
+                    else:
+                        # No YAML content and no subId — don't sum anything
+                        # (would give misleading total like 1.85T)
+                        continue
+
                     up = ib.get("up", 0) or 0
                     down = ib.get("down", 0) or 0
                     tot = ib.get("total", 0) or 0
@@ -3286,7 +3386,7 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
         } if saw_any else None
         _traffic_cache["data"] = result
         _traffic_cache["ts"] = now
-        _traffic_cache["scope"] = scope_base
+        _traffic_cache["scope"] = _cache_key
         return result
     except Exception:  # noqa: BLE001
         return None
