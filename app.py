@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.36"
+APP_VERSION = "v1.6.37"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -2115,16 +2115,33 @@ def serve_by_token(token):
     )
     # Fetch VPS traffic from the 3x-ui panel this config was generated from,
     # so the displayed allocated/used traffic matches *this* subscription.
-    gcfg = load_global_config()
-    scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
-    traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
-    response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
-    # Diagnostics: per-node contribution, so you can tell at a glance which
-    # VPS/clients were counted (and which were skipped because no panel was
-    # configured for them).  Visible via: curl -I http://host/d/<token>
-    detail = _format_traffic_detail(traffic)
-    if detail:
-        response.headers["X-Traffic-Detail"] = detail
+    # ⚠️ This MUST be best-effort: traffic stats are cosmetic (used/total shown
+    # in the client), while the YAML itself is the whole point of the request.
+    # Any failure here (panel down, unexpected payload, header encoding issue)
+    # must degrade to "no traffic info" instead of breaking the subscription —
+    # a Chinese inbound remark used to crash the gunicorn worker mid-response
+    # (latin-1 header encode) and every client import failed with an empty reply.
+    try:
+        gcfg = load_global_config()
+        scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
+        traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
+        response.headers["Subscription-Userinfo"] = _ascii_header(
+            _format_subscription_userinfo(traffic))
+        # Diagnostics: per-node contribution, so you can tell at a glance which
+        # VPS/clients were counted (and which were skipped because no panel was
+        # configured for them).  Visible via: curl -I http://host/d/<token>
+        detail = _ascii_header(_format_traffic_detail(traffic))
+        if detail:
+            response.headers["X-Traffic-Detail"] = detail
+    except Exception:
+        try:
+            app.logger.exception("[vps-traffic] failed; serving YAML without traffic info")
+        except Exception:
+            pass
+        try:
+            response.headers["Subscription-Userinfo"] = "upload=0; download=0; total=0; expire=0"
+        except Exception:
+            pass
     return response
 
 
@@ -3550,6 +3567,24 @@ def _human_bytes(n):
     return f"{n:.2f}PB"
 
 
+def _ascii_header(s):
+    """Make a string safe for an HTTP header value.
+
+    gunicorn writes response headers with `.encode('latin-1')`
+    (gunicorn/http/wsgi.py). Any non-ASCII character — e.g. a Chinese 3x-ui
+    inbound remark — raises UnicodeEncodeError while the headers are being
+    written, the worker dies mid-response and the client sees
+    "Empty reply from server" (curl 52) => Clash import failure.
+    Also strip CR/LF to prevent header injection.
+    """
+    s = (s or "").replace("\r", " ").replace("\n", " ")
+    try:
+        s.encode("latin-1")
+        return s
+    except UnicodeEncodeError:
+        return s.encode("ascii", "replace").decode("ascii")
+
+
 def _format_traffic_detail(traffic):
     """Build the X-Traffic-Detail header: which node contributed how much.
 
@@ -3557,6 +3592,9 @@ def _format_traffic_detail(traffic):
       HK:39999 used=10.00GB quota=200.00GB; JP:29214 used=1.00GB quota=200.00GB
     Lets you verify with `curl -I` that every node in the YAML is counted
     (a missing node means its panel isn't in 总体配置 → VPS 流量源).
+
+    ⚠️ Must stay ASCII-only: gunicorn latin-1 encodes header values, so a
+    Chinese inbound remark here would kill the worker (empty reply).
     """
     if not traffic:
         return ""
@@ -3565,12 +3603,12 @@ def _format_traffic_detail(traffic):
         return ""
     parts = []
     for n in nodes:
-        label = n.get("node") or ""
+        label = _ascii_header(n.get("node") or "")
         port = n.get("port")
         name = f"{label}:{port}" if label else str(port or "?")
         used = (n.get("up") or 0) + (n.get("down") or 0)
         parts.append(f"{name} used={_human_bytes(used)} quota={_human_bytes(n.get('total'))}")
-    return "; ".join(parts)
+    return _ascii_header("; ".join(parts))
 
 
 def _format_subscription_userinfo(traffic):
