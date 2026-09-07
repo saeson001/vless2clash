@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.35"
+APP_VERSION = "v1.6.36"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3113,9 +3113,43 @@ def _extract_subid(url):
     return None
 
 
+# --- Panel query cache -------------------------------------------------------
+# /d/<token> queries every configured 3x-ui panel synchronously. Without a
+# cache, one slow/unreachable panel adds up to 3 x timeout seconds to EVERY
+# subscription fetch, and Clash Party aborts long downloads with
+# "failed to fetch remote profile". Cache successful panel payloads for
+# PANEL_CACHE_TTL and remember failures briefly (negative cache) so a dead
+# panel costs at most one short timeout per window instead of per request.
+_PANEL_CACHE = {}  # (url, user, pwd) -> (timestamp, payload_or_None)
+_PANEL_CACHE_TTL = 90  # seconds for successful queries
+_PANEL_CACHE_TTL_FAIL = 30  # seconds for failed queries
+_PANEL_REQ_TIMEOUT = 4  # per-HTTP-request timeout (was 10s x3 per panel)
+
+
 def _fetch_panel_inbounds(url, user, pwd):
     """Log into a 3x-ui panel (CSRF token + session) and return the parsed
-    inbounds-list payload dict, or None on any failure."""
+    inbounds-list payload dict, or None on any failure.
+
+    Results are cached: success for _PANEL_CACHE_TTL, failure for
+    _PANEL_CACHE_TTL_FAIL, so subscription fetches never block on panels.
+    Admin actions that need fresh data can call _fetch_panel_inbounds_fresh().
+    """
+    import time as _time
+    key = (url, user, pwd)
+    now = _time.time()
+    hit = _PANEL_CACHE.get(key)
+    if hit is not None:
+        ts, payload = hit
+        ttl = _PANEL_CACHE_TTL if payload is not None else _PANEL_CACHE_TTL_FAIL
+        if now - ts < ttl:
+            return payload
+    data = _fetch_panel_inbounds_fresh(url, user, pwd)
+    _PANEL_CACHE[key] = (now, data)
+    return data
+
+
+def _fetch_panel_inbounds_fresh(url, user, pwd):
+    """Uncached panel login + inbounds list (the real worker)."""
     import json as _json
     import urllib.request as _urllib_req
     try:
@@ -3134,7 +3168,7 @@ def _fetch_panel_inbounds(url, user, pwd):
             return "; ".join("%s=%s" % (k, v) for k, v in _jar.items())
 
         req_csrf = _urllib_req.Request("%s/csrf-token" % url, method="GET")
-        resp_csrf = _urllib_req.urlopen(req_csrf, timeout=10)
+        resp_csrf = _urllib_req.urlopen(req_csrf, timeout=_PANEL_REQ_TIMEOUT)
         _save_cookies(resp_csrf)
         csrf_body = _json.loads(resp_csrf.read())
         csrf_token = (csrf_body.get("obj") or "") if isinstance(csrf_body, dict) else ""
@@ -3146,7 +3180,7 @@ def _fetch_panel_inbounds(url, user, pwd):
         req_login.add_header("X-CSRF-Token", csrf_token)
         if _cookie_header():
             req_login.add_header("Cookie", _cookie_header())
-        resp_login = _urllib_req.urlopen(req_login, timeout=10)
+        resp_login = _urllib_req.urlopen(req_login, timeout=_PANEL_REQ_TIMEOUT)
         _save_cookies(resp_login)
         login_body = _json.loads(resp_login.read())
         if not isinstance(login_body, dict) or not login_body.get("success"):
@@ -3154,7 +3188,7 @@ def _fetch_panel_inbounds(url, user, pwd):
         req_list = _urllib_req.Request("%s/panel/api/inbounds/list" % url, method="GET")
         if _cookie_header():
             req_list.add_header("Cookie", _cookie_header())
-        resp_list = _urllib_req.urlopen(req_list, timeout=10)
+        resp_list = _urllib_req.urlopen(req_list, timeout=_PANEL_REQ_TIMEOUT)
         data = _json.loads(resp_list.read())
         if not isinstance(data, dict) or not data.get("success"):
             return None
