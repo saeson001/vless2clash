@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.30"
+APP_VERSION = "v1.6.31"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3073,18 +3073,89 @@ def _normalize_panel_base(u):
     return u.rstrip("/").lower()
 
 
-def _fetch_vps_traffic(gcfg, scope_base=None):
-    """Aggregate inbound traffic from configured 3x-ui panel APIs.
+def _extract_subid(url):
+    """Extract the 3x-ui subscription id (subId) from a /sub/, /clash/ or
+    /json/ link. e.g. http://host:8284/base/sub/ABC123 -> 'ABC123'."""
+    u = (url or "").strip().split("#", 1)[0].split("?", 1)[0]
+    for tail in ("/sub/", "/clash/", "/json/"):
+        idx = u.find(tail)
+        if idx != -1:
+            sid = u[idx + len(tail):].strip("/")
+            return sid or None
+    return None
 
-    3x-ui v3.4.2 requires a CSRF token for the POST /login endpoint, so we
-    must: GET /csrf-token -> capture token + session cookie, then POST /login
-    with the X-CSRF-Token header. The inbounds list is a GET (safe method), so
-    it only needs the logged-in session cookie.
+
+def _fetch_panel_inbounds(url, user, pwd):
+    """Log into a 3x-ui panel (CSRF token + session) and return the parsed
+    inbounds-list payload dict, or None on any failure."""
+    import json as _json
+    import urllib.request as _urllib_req
+    try:
+        _jar = {}
+
+        def _save_cookies(resp):
+            for h in (resp.headers.get_all("Set-Cookie") or []):
+                try:
+                    kv = h.split(";", 1)[0]
+                    k, v = kv.split("=", 1)
+                    _jar[k.strip()] = v.strip()
+                except Exception:
+                    pass
+
+        def _cookie_header():
+            return "; ".join("%s=%s" % (k, v) for k, v in _jar.items())
+
+        req_csrf = _urllib_req.Request("%s/csrf-token" % url, method="GET")
+        resp_csrf = _urllib_req.urlopen(req_csrf, timeout=10)
+        _save_cookies(resp_csrf)
+        csrf_body = _json.loads(resp_csrf.read())
+        csrf_token = (csrf_body.get("obj") or "") if isinstance(csrf_body, dict) else ""
+        if not csrf_token:
+            return None
+        login_data = _json.dumps({"username": user, "password": pwd}).encode()
+        req_login = _urllib_req.Request("%s/login" % url, data=login_data, method="POST")
+        req_login.add_header("Content-Type", "application/json")
+        req_login.add_header("X-CSRF-Token", csrf_token)
+        if _cookie_header():
+            req_login.add_header("Cookie", _cookie_header())
+        resp_login = _urllib_req.urlopen(req_login, timeout=10)
+        _save_cookies(resp_login)
+        login_body = _json.loads(resp_login.read())
+        if not isinstance(login_body, dict) or not login_body.get("success"):
+            return None
+        req_list = _urllib_req.Request("%s/panel/api/inbounds/list" % url, method="GET")
+        if _cookie_header():
+            req_list.add_header("Cookie", _cookie_header())
+        resp_list = _urllib_req.urlopen(req_list, timeout=10)
+        data = _json.loads(resp_list.read())
+        if not isinstance(data, dict) or not data.get("success"):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _fetch_vps_traffic(gcfg, scope_base=None):
+    """Aggregate traffic for the subscription this config was generated from.
+
+    3x-ui v3.4.2 needs a CSRF token for POST /login, so we fetch /csrf-token
+    then POST /login with the X-CSRF-Token header.
+
+    `scope_base` is the record's `xui_sub_url`, which may hold MULTIPLE
+    subscription links (one per VPS / inbound). Each link is matched to its
+    panel by host:port+webBasePath, and to its specific client by the subId
+    embedded in the link. Only that client's up/down/total count, so a token
+    spanning three 200G clients shows 600G -- not the whole panels' 2T.
+
+    If scope_base is empty (no xui_sub_url) or no link matches a configured
+    panel, we fall back to summing every configured panel's inbounds (legacy
+    behaviour) so the header still carries a usable number.
 
     Returns dict {"upload", "download", "total"} (bytes) or None on failure.
-    Results (including negative) are cached for `ttl` seconds.
+    Results are cached for `ttl` seconds keyed by scope_base.
     """
     import time as _time
+    import re as _re
     now = _time.time()
     if (_traffic_cache["data"] is not None and now - _traffic_cache["ts"] < _traffic_cache["ttl"]
             and _traffic_cache.get("scope") == scope_base):
@@ -3093,12 +3164,22 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
     sources = gcfg.get("vps_traffic_sources") or []
     if not sources:
         return None
+
+    # Resolve which (panel, subId) pairs this subscription covers.
+    targets = []  # list of (source_dict, subid_or_None)
     if scope_base:
-        _sb = _normalize_panel_base(scope_base)
-        _matched = [s for s in sources
-                    if _normalize_panel_base(s.get("url")) == _sb]
-        if _matched:
-            sources = _matched
+        links = [l.strip() for l in _re.split(r"[\r\n,;]+", scope_base) if l.strip()]
+        for link in links:
+            pb = _normalize_panel_base(link)
+            sid = _extract_subid(link)
+            for src in sources:
+                if _normalize_panel_base(src.get("url")) == pb:
+                    targets.append((src, sid))
+                    break
+        if not targets:
+            targets = [(s, None) for s in sources]  # no match -> sum all (legacy)
+    else:
+        targets = [(s, None) for s in sources]
 
     total_up = 0
     total_down = 0
@@ -3106,63 +3187,30 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
     quota_override = 0
     saw_any = False
     try:
-        import json as _json
-        import urllib.request as _urllib_req
-
-        for src in sources:
+        _queried = {}  # panel url -> inbounds payload (de-dup queries)
+        for src, sid in targets:
             url = (src.get("url") or "").rstrip("/")
             user = src.get("username", "")
             pwd = src.get("password", "")
             if not url:
                 continue
-            try:
-                _jar = {}
+            if url in _queried:
+                data = _queried[url]
+            else:
+                data = _fetch_panel_inbounds(url, user, pwd)
+                _queried[url] = data
+            if data is None:
+                continue
+            saw_any = True
+            q = _parse_quota(src.get("quota"))
+            if q:
+                quota_override += q
 
-                def _save_cookies(resp):
-                    for h in (resp.headers.get_all("Set-Cookie") or []):
-                        try:
-                            kv = h.split(";", 1)[0]
-                            k, v = kv.split("=", 1)
-                            _jar[k.strip()] = v.strip()
-                        except Exception:
-                            pass
-
-                def _cookie_header():
-                    return "; ".join("%s=%s" % (k, v) for k, v in _jar.items())
-
-                # 1) obtain CSRF token + session cookie (public endpoint)
-                req_csrf = _urllib_req.Request("%s/csrf-token" % url, method="GET")
-                resp_csrf = _urllib_req.urlopen(req_csrf, timeout=10)
-                _save_cookies(resp_csrf)
-                csrf_body = _json.loads(resp_csrf.read())
-                csrf_token = (csrf_body.get("obj") or "") if isinstance(csrf_body, dict) else ""
-                if not csrf_token:
-                    app.logger.warning("[vps-traffic] no CSRF token from %s", url)
+            for ib in (data.get("obj") or []):
+                if not isinstance(ib, dict):
                     continue
-
-                # 2) login with CSRF token header + session cookie
-                login_data = _json.dumps({"username": user, "password": pwd}).encode()
-                req_login = _urllib_req.Request("%s/login" % url, data=login_data, method="POST")
-                req_login.add_header("Content-Type", "application/json")
-                req_login.add_header("X-CSRF-Token", csrf_token)
-                if _cookie_header():
-                    req_login.add_header("Cookie", _cookie_header())
-                resp_login = _urllib_req.urlopen(req_login, timeout=10)
-                _save_cookies(resp_login)
-                login_body = _json.loads(resp_login.read())
-                if not isinstance(login_body, dict) or not login_body.get("success"):
-                    app.logger.warning("[vps-traffic] login failed for %s", url)
-                    continue
-
-                # 3) inbounds list (GET = safe method, no CSRF needed; needs session cookie)
-                req_list = _urllib_req.Request("%s/panel/api/inbounds/list" % url, method="GET")
-                if _cookie_header():
-                    req_list.add_header("Cookie", _cookie_header())
-                resp_list = _urllib_req.urlopen(req_list, timeout=10)
-                data = _json.loads(resp_list.read())
-                if not isinstance(data, dict) or not data.get("success"):
-                    continue
-                for ib in (data.get("obj") or []):
+                if sid is None:
+                    # Legacy: sum the whole inbound (inbound + all its clients)
                     up = ib.get("up", 0) or 0
                     down = ib.get("down", 0) or 0
                     tot = ib.get("total", 0) or 0
@@ -3173,13 +3221,33 @@ def _fetch_vps_traffic(gcfg, scope_base=None):
                     total_up += up
                     total_down += down
                     panel_alloc += tot
-                q = _parse_quota(src.get("quota"))
-                if q:
-                    quota_override += q
-                saw_any = True
-            except Exception as e:  # noqa: BLE001 - skip failing source
-                app.logger.warning("[vps-traffic] source %s error: %s", url, e)
-                continue
+                    continue
+
+                # Per-client match by subId (clientStats carries live traffic)
+                matched = [c for c in (ib.get("clientStats") or [])
+                           if isinstance(c, dict) and c.get("subId") == sid]
+                if matched:
+                    for c in matched:
+                        total_up += c.get("up", 0) or 0
+                        total_down += c.get("down", 0) or 0
+                        panel_alloc += c.get("total", 0) or 0
+                    continue
+                # Client present in settings but no clientStats row yet
+                client_subids = [c.get("subId") for c in (ib.get("settings", {}).get("clients") or [])
+                                 if isinstance(c, dict)]
+                if sid in client_subids:
+                    total_up += ib.get("up", 0) or 0
+                    total_down += ib.get("down", 0) or 0
+                    panel_alloc += ib.get("total", 0) or 0
+                    continue
+                # Inbound-level subId (whole inbound is this subscription)
+                ib_sub = (ib.get("settings", {}) or {}).get("subId") or ib.get("subId")
+                if ib_sub == sid:
+                    total_up += ib.get("up", 0) or 0
+                    total_down += ib.get("down", 0) or 0
+                    panel_alloc += ib.get("total", 0) or 0
+                    continue
+                # subId not in this inbound -> not this token's traffic; skip
 
         result = {
             "upload": total_up,
