@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.29"
+APP_VERSION = "v1.6.30"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -2116,7 +2116,7 @@ def serve_by_token(token):
     # Fetch VPS traffic from the 3x-ui panel this config was generated from,
     # so the displayed allocated/used traffic matches *this* subscription.
     gcfg = load_global_config()
-    scope_base = (row or {}).get("xui_sub_url") if row else None
+    scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
     traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base)
     response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
     return response
@@ -2689,8 +2689,8 @@ def admin_refresh_all_records():
             cfg["ai_hongkong"] = ""
             if gcfg["ai_routing"]:
                 names = {p["name"] for p in proxies}
-                stored_jp = row["ai_japan"] if (row.get("ai_japan") in names) else ""
-                stored_hk = row["ai_hongkong"] if (row.get("ai_hongkong") in names) else ""
+                stored_jp = row["ai_japan"] if (row["ai_japan"] in names) else ""
+                stored_hk = row["ai_hongkong"] if (row["ai_hongkong"] in names) else ""
                 cls = classify_region_nodes(proxies)
                 ai_japan = stored_jp or (cls["japan"][0] if cls["japan"] else "")
                 ai_hongkong = stored_hk or (cls["hongkong"][0] if cls["hongkong"] else "")
