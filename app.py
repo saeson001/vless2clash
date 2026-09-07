@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.27"
+APP_VERSION = "v1.6.28"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3039,11 +3039,33 @@ def _auto_migrate_after_upgrade():
 _traffic_cache = {"data": None, "ts": 0, "ttl": 300}  # cache 5 minutes
 
 
+def _parse_quota(s):
+    """Parse a human quota string like '1TB','500 GB','1024' into bytes. None if invalid."""
+    if not s:
+        return None
+    s = str(s).strip().upper().replace(" ", "")
+    for suffix, m in (("TB", 1024 ** 4), ("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
+        if s.endswith(suffix):
+            try:
+                return int(float(s[:-len(suffix)]) * m)
+            except ValueError:
+                return None
+    try:
+        return int(float(s))
+    except ValueError:
+        return None
+
+
 def _fetch_vps_traffic(gcfg):
     """Aggregate inbound traffic from configured 3x-ui panel APIs.
 
-    Returns dict: {"upload": int_bytes, "download": int_bytes, "total": int_bytes}
-    or None on failure. Results are cached for `ttl` seconds.
+    3x-ui v3.4.2 requires a CSRF token for the POST /login endpoint, so we
+    must: GET /csrf-token -> capture token + session cookie, then POST /login
+    with the X-CSRF-Token header. The inbounds list is a GET (safe method), so
+    it only needs the logged-in session cookie.
+
+    Returns dict {"upload", "download", "total"} (bytes) or None on failure.
+    Results (including negative) are cached for `ttl` seconds.
     """
     import time as _time
     now = _time.time()
@@ -3056,8 +3078,12 @@ def _fetch_vps_traffic(gcfg):
 
     total_up = 0
     total_down = 0
+    total_quota = 0
+    saw_any = False
     try:
         import json as _json
+        import urllib.request as _urllib_req
+
         for src in sources:
             url = (src.get("url") or "").rstrip("/")
             user = src.get("username", "")
@@ -3065,38 +3091,68 @@ def _fetch_vps_traffic(gcfg):
             if not url:
                 continue
             try:
-                import urllib.request as _urllib_req
-                # Login to get session cookie
-                login_url = f"{url}/login"
-                login_data = _json.dumps({"username": user, "password": pwd}).encode()
-                req = _urllib_req.Request(login_url, data=login_data, method="POST")
-                req.add_header("Content-Type", "application/json")
-                resp = _urllib_req.urlopen(req, timeout=10)
-                body = _json.loads(resp.read())
-                if not body.get("success"):
-                    continue
-                cookie = resp.headers.get("Set-Cookie", "")
+                _jar = {}
 
-                # Fetch inbounds with traffic stats
-                api_url = f"{url}/panel/api/inbounds/list"
-                req2 = _urllib_req.Request(api_url)
-                if cookie:
-                    req2.add_header("Cookie", cookie)
-                resp2 = _urllib_req.urlopen(req2, timeout=10)
-                data = _json.loads(resp2.read())
-                if not data.get("success"):
+                def _save_cookies(resp):
+                    for h in (resp.headers.get_all("Set-Cookie") or []):
+                        try:
+                            kv = h.split(";", 1)[0]
+                            k, v = kv.split("=", 1)
+                            _jar[k.strip()] = v.strip()
+                        except Exception:
+                            pass
+
+                def _cookie_header():
+                    return "; ".join("%s=%s" % (k, v) for k, v in _jar.items())
+
+                # 1) obtain CSRF token + session cookie (public endpoint)
+                req_csrf = _urllib_req.Request("%s/csrf-token" % url, method="GET")
+                resp_csrf = _urllib_req.urlopen(req_csrf, timeout=10)
+                _save_cookies(resp_csrf)
+                csrf_body = _json.loads(resp_csrf.read())
+                csrf_token = (csrf_body.get("obj") or "") if isinstance(csrf_body, dict) else ""
+                if not csrf_token:
+                    app.logger.warning("[vps-traffic] no CSRF token from %s", url)
+                    continue
+
+                # 2) login with CSRF token header + session cookie
+                login_data = _json.dumps({"username": user, "password": pwd}).encode()
+                req_login = _urllib_req.Request("%s/login" % url, data=login_data, method="POST")
+                req_login.add_header("Content-Type", "application/json")
+                req_login.add_header("X-CSRF-Token", csrf_token)
+                if _cookie_header():
+                    req_login.add_header("Cookie", _cookie_header())
+                resp_login = _urllib_req.urlopen(req_login, timeout=10)
+                _save_cookies(resp_login)
+                login_body = _json.loads(resp_login.read())
+                if not isinstance(login_body, dict) or not login_body.get("success"):
+                    app.logger.warning("[vps-traffic] login failed for %s", url)
+                    continue
+
+                # 3) inbounds list (GET = safe method, no CSRF needed; needs session cookie)
+                req_list = _urllib_req.Request("%s/panel/api/inbounds/list" % url, method="GET")
+                if _cookie_header():
+                    req_list.add_header("Cookie", _cookie_header())
+                resp_list = _urllib_req.urlopen(req_list, timeout=10)
+                data = _json.loads(resp_list.read())
+                if not isinstance(data, dict) or not data.get("success"):
                     continue
                 for ib in (data.get("obj") or []):
                     total_up += ib.get("up", 0) or 0
                     total_down += ib.get("down", 0) or 0
-            except Exception:  # noqa: BLE001 - skip failing source
+                q = _parse_quota(src.get("quota"))
+                if q:
+                    total_quota += q
+                saw_any = True
+            except Exception as e:  # noqa: BLE001 - skip failing source
+                app.logger.warning("[vps-traffic] source %s error: %s", url, e)
                 continue
 
         result = {
             "upload": total_up,
             "download": total_down,
-            "total": total_up + total_down,
-        }
+            "total": total_quota if total_quota > 0 else (total_up + total_down),
+        } if saw_any else None
         _traffic_cache["data"] = result
         _traffic_cache["ts"] = now
         return result
