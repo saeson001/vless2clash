@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.37"
+APP_VERSION = "v1.6.38"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3523,6 +3523,9 @@ def _fetch_vps_traffic(gcfg, scope_base=None, yaml_content=None):
                     _matched_nodes.append({
                         "panel": url,
                         "node": ib.get("remark") or "",
+                        # Fallback label for the diagnostics header: remarks are
+                        # often Chinese, and gunicorn latin-1 encodes headers.
+                        "host": panel_host or "",
                         "port": ib.get("port"),
                         "up": contrib_up,
                         "down": contrib_down,
@@ -3603,7 +3606,14 @@ def _format_traffic_detail(traffic):
         return ""
     parts = []
     for n in nodes:
-        label = _ascii_header(n.get("node") or "")
+        label = n.get("node") or ""
+        try:
+            label.encode("latin-1")
+        except UnicodeEncodeError:
+            # Chinese remark — fall back to the panel host so the entry stays
+            # readable in `curl -I` output instead of "??".
+            label = n.get("host") or ""
+        label = _ascii_header(label)
         port = n.get("port")
         name = f"{label}:{port}" if label else str(port or "?")
         used = (n.get("up") or 0) + (n.get("down") or 0)

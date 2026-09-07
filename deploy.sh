@@ -25,7 +25,7 @@
 
 set -e
 
-VERSION="v1.6.37"
+VERSION="v1.6.38"
 APP_NAME="vless2clash"
 APP_DIR="/opt/vless2clash"
 APP_USER="vless2clash"
