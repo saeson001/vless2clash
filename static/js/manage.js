@@ -149,6 +149,8 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-hc-timeout', cfg.hc_timeout != null ? cfg.hc_timeout : 5000);
             setGlobalConfigField('gc-auto-update-enabled', cfg.auto_update_enabled ? 'true' : 'false');
             setGlobalConfigField('gc-auto-update-interval', cfg.auto_update_interval_hours != null ? cfg.auto_update_interval_hours : 6);
+            var vpsSrc = cfg.vps_traffic_sources;
+            setGlobalConfigField('gc-vps-traffic-sources', Array.isArray(vpsSrc) ? JSON.stringify(vpsSrc, null, 2) : '');
         })
         .catch(function() {});
 }
@@ -171,7 +173,12 @@ function saveGlobalConfig(applyAll) {
         hc_url: document.getElementById('gc-hc-url').value.trim(),
         hc_interval: parseInt(document.getElementById('gc-hc-interval').value) || 300,
         hc_tolerance: parseInt(document.getElementById('gc-hc-tolerance').value) || 50,
-        hc_timeout: parseInt(document.getElementById('gc-hc-timeout').value) || 5000
+        hc_timeout: parseInt(document.getElementById('gc-hc-timeout').value) || 5000,
+        auto_update_enabled: document.getElementById('gc-auto-update-enabled').value === 'true',
+        auto_update_interval_hours: parseInt(document.getElementById('gc-auto-update-interval').value) || 6,
+        vps_traffic_sources: (function() {
+            try { return JSON.parse(document.getElementById('gc-vps-traffic-sources').value || '[]'); } catch(e) { return []; }
+        })()
     };
     var saveBtn = document.getElementById('gc-save-btn');
     var applyBtn = document.getElementById('gc-apply-btn');

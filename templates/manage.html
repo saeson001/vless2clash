@@ -172,6 +172,11 @@
                         <label>更新间隔(小时)</label>
                         <input type="number" id="gc-auto-update-interval" value="6" min="1" max="168">
                     </div>
+                    <div class="config-item" style="grid-column:1/-1;">
+                        <label>VPS 流量源（3x-ui 面板地址，用于订阅显示使用量）</label>
+                        <textarea id="gc-vps-traffic-sources" rows="3" placeholder='[{"url":"http://IP:PORT","username":"admin","password":"xxx"}]' style="font-family:monospace;font-size:12px;width:100%;resize:vertical;"></textarea>
+                        <small style="color:#888;">JSON 数组，每项为 3x-ui 面板的 URL+登录凭据。留空则不显示流量。客户端刷新订阅后生效。</small>
+                    </div>
                 </div>
                 <div class="modal-actions" style="margin-top:12px;" data-page-node-id="kFltcpyW9EQA477jeqgdaZ">
                     <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)" data-page-node-id="AE7Fs7fUa551HqaMyk7PGu">💾 保存</button>

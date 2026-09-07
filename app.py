@@ -67,7 +67,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.26"
+APP_VERSION = "v1.6.27"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -109,6 +109,10 @@ DEFAULT_GLOBAL_CONFIG = {
     # synced without a manual 「更新」 click.
     "auto_update_enabled": False,
     "auto_update_interval_hours": 6,
+    # VPS traffic display: 3x-ui panel URLs for fetching inbound traffic stats.
+    # Format: JSON array of {"url":"http://IP:PORT","username":"...","password":"..."}
+    # Leave empty to disable (shows 0/0).
+    "vps_traffic_sources": [],
 }
 
 
@@ -142,6 +146,12 @@ def save_global_config(cfg):
     merged["hc_timeout"] = int(merged["hc_timeout"] or 5000)
     merged["auto_update_enabled"] = bool(merged.get("auto_update_enabled", False))
     merged["auto_update_interval_hours"] = int(merged.get("auto_update_interval_hours", 6) or 6)
+    # vps_traffic_sources: JSON array of 3x-ui panel credentials
+    src = merged.get("vps_traffic_sources")
+    if isinstance(src, list):
+        merged["vps_traffic_sources"] = src
+    else:
+        merged["vps_traffic_sources"] = []
     os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
     with open(GLOBAL_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
@@ -1024,6 +1034,7 @@ JAPAN_KEYWORDS = ["日本", "东京", "大阪", "tokyo", "osaka", "jp", "japan"]
 HK_KEYWORDS = ["香港", "港", "hongkong", "hong kong", "hk"]
 
 AI_GROUP_NAME = "AI 分流"
+VIDEO_GROUP_NAME = "视频分流"
 DEFAULT_GROUP_NAME = "默认分流"
 
 # Foreign AI service domains routed to the Japan node.
@@ -1058,6 +1069,36 @@ AI_DOMAINS = [
     "githubcopilot.com",
 ]
 
+# Foreign video / streaming service domains routed to the 视频分流 group.
+# Chinese video services (bilibili, youku, iqiyi, etc.) are intentionally
+# excluded — they fall through to GEO/CN direct rules.
+VIDEO_DOMAINS = [
+    # YouTube
+    "youtube.com", "youtu.be", "googlevideo.com", "ytimg.com",
+    "gstatic.com", "ggpht.com",
+    # Netflix
+    "netflix.com", "nflximg.net", "nflxext.com", "nflxso.net",
+    "nflxvideo.net", "netflix.net",
+    # Disney+
+    "disneyplus.com", "disney-plus.net", "disneyplus.net",
+    # TikTok
+    "tiktok.com", "tiktokv.com",
+    # Spotify
+    "spotify.com", "scdn.co",
+    # Twitch
+    "twitch.tv", "ttvnw.net", "jtvnw.net",
+    # Prime Video
+    "primevideo.com", "amazon.com",
+    # HBO / Max
+    "hbo.com", "hbonow.com", "max.com",
+    # Apple TV+
+    "icloud.com",  # apple TV+ uses icloud CDN
+    # Dailymotion
+    "dailymotion.com",
+    # Vimeo
+    "vimeo.com",
+]
+
 
 def classify_region_nodes(proxies):
     """Detect Japan / Hong Kong node names from proxy names.
@@ -1078,6 +1119,12 @@ def _emit_ai_rules(lines):
     """Emit DOMAIN-SUFFIX rules for foreign AI services -> AI 分流 group."""
     for d in AI_DOMAINS:
         lines.append(f"  - DOMAIN-SUFFIX,{d},{AI_GROUP_NAME}")
+
+
+def _emit_video_rules(lines):
+    """Emit DOMAIN-SUFFIX rules for foreign video/streaming -> 视频分流 group."""
+    for d in VIDEO_DOMAINS:
+        lines.append(f"  - DOMAIN-SUFFIX,{d},{VIDEO_GROUP_NAME}")
 
 
 # Defensive: reject known placeholder / unreachable upstream IPs right before the
@@ -1113,6 +1160,7 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("rules:")
         if ai_routing:
             _emit_ai_rules(lines)
+            _emit_video_rules(lines)
             lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
         else:
@@ -1142,6 +1190,7 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("  - GEOIP,PRIVATE,DIRECT")
         if ai_routing:
             _emit_ai_rules(lines)
+            _emit_video_rules(lines)
             lines.extend(DEFENSIVE_RULES)
             lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
         else:
@@ -1216,6 +1265,7 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
     # Final fallback -> proxy
     if ai_routing:
         _emit_ai_rules(lines)
+        _emit_video_rules(lines)
         lines.extend(DEFENSIVE_RULES)
         lines.append(f"  - MATCH,{DEFAULT_GROUP_NAME}")
     else:
@@ -1352,37 +1402,42 @@ def generate_clash_yaml(proxies, config=None):
 
     if ai_routing:
         # ai_preference decides which region is prioritized in each group:
-        #   "jp_hk" (default): 默认分流→香港优先, AI分流→日本优先
-        #   "hk_jp"           : 默认分流→日本优先, AI分流→香港优先
+        #   "jp_hk" (default): 默认分流→香港优先, AI分流→日本优先, 视频分流→香港优先
+        #   "hk_jp"           : 默认分流→日本优先, AI分流→香港优先, 视频分流→日本优先
         ai_pref = config.get("ai_preference", "jp_hk")
         if ai_pref == "hk_jp":
             default_first, default_second = ai_japan, ai_hongkong   # 默认→日本优先
             ai_first, ai_second = ai_hongkong, ai_japan             # AI→香港优先
+            video_first, video_second = ai_japan, ai_hongkong       # 视频→日本优先
         else:
             default_first, default_second = ai_hongkong, ai_japan   # 默认→香港优先
             ai_first, ai_second = ai_japan, ai_hongkong             # AI→日本优先
+            video_first, video_second = ai_hongkong, ai_japan       # 视频→香港优先
 
-        # 默认分流 group (fallback type => first node that passes the health check)
-        default_members = []
-        if default_first:
-            default_members.append(default_first)
-        if default_second:
-            default_members.append(default_second)
-        for p in proxies:
-            if p["name"] not in default_members:
-                default_members.append(p["name"])
-        default_members.append("DIRECT")
+        # Build member list helper: [region_priority_nodes, all_other_nodes, 节点选择, DIRECT]
+        def _build_smart_members(first, second):
+            members = []
+            if first:
+                members.append(first)
+            if second:
+                members.append(second)
+            for p in proxies:
+                if p["name"] not in members:
+                    members.append(p["name"])
+            # Fallback to main select group so manual node selection still works
+            # as ultimate fallback when all smart-routing nodes are down.
+            members.append(group_name)
+            members.append("DIRECT")
+            return members
 
-        # AI 分流 group
-        ai_members = []
-        if ai_first:
-            ai_members.append(ai_first)
-        if ai_second:
-            ai_members.append(ai_second)
-        for p in proxies:
-            if p["name"] not in ai_members:
-                ai_members.append(p["name"])
-        ai_members.append("DIRECT")
+        # 默认分流 group (fallback => first healthy node by health-check)
+        default_members = _build_smart_members(default_first, default_second)
+
+        # AI 分流 group (fallback => AI domains → JP/HK smart pick → 节点选择 → DIRECT)
+        ai_members = _build_smart_members(ai_first, ai_second)
+
+        # 视频分流 group (fallback => streaming → HK/JP smart pick → 节点选择 → DIRECT)
+        video_members = _build_smart_members(video_first, video_second)
 
         lines.append(f'  - name: "{DEFAULT_GROUP_NAME}"')
         lines.append(f'    type: fallback')
@@ -1399,6 +1454,17 @@ def generate_clash_yaml(proxies, config=None):
         lines.append(f'    type: fallback')
         lines.append(f'    proxies:')
         for m in ai_members:
+            lines.append(f'      - "{m}"')
+        lines.append(f'    url: {HC_URL}')
+        lines.append(f'    interval: {HC_INTERVAL}')
+        lines.append(f'    tolerance: {HC_TOLERANCE}')
+        lines.append(f'    timeout: {HC_TIMEOUT}')
+        lines.append("")
+
+        lines.append(f'  - name: "{VIDEO_GROUP_NAME}"')
+        lines.append(f'    type: fallback')
+        lines.append(f'    proxies:')
+        for m in video_members:
             lines.append(f'      - "{m}"')
         lines.append(f'    url: {HC_URL}')
         lines.append(f'    interval: {HC_INTERVAL}')
@@ -2047,7 +2113,10 @@ def serve_by_token(token):
         f'attachment; filename="{ascii_fallback}.yaml"; '
         f"filename*=UTF-8''{encoded_name}"
     )
-    response.headers["Subscription-Userinfo"] = "upload=0; download=0; total=0; expire=0"
+    # Fetch VPS traffic from 3x-ui panel APIs for usage display in client
+    gcfg = load_global_config()
+    traffic = _fetch_vps_traffic(gcfg)
+    response.headers["Subscription-Userinfo"] = _format_subscription_userinfo(traffic)
     return response
 
 
@@ -2961,6 +3030,88 @@ def _auto_migrate_after_upgrade():
             pass
     except Exception:  # noqa: BLE001 - never break startup
         pass
+
+
+# ---------------------------------------------------------------------------
+# VPS traffic fetching (for Subscription-Userinfo header)
+# ---------------------------------------------------------------------------
+
+_traffic_cache = {"data": None, "ts": 0, "ttl": 300}  # cache 5 minutes
+
+
+def _fetch_vps_traffic(gcfg):
+    """Aggregate inbound traffic from configured 3x-ui panel APIs.
+
+    Returns dict: {"upload": int_bytes, "download": int_bytes, "total": int_bytes}
+    or None on failure. Results are cached for `ttl` seconds.
+    """
+    import time as _time
+    now = _time.time()
+    if _traffic_cache["data"] is not None and now - _traffic_cache["ts"] < _traffic_cache["ttl"]:
+        return _traffic_cache["data"]
+
+    sources = gcfg.get("vps_traffic_sources") or []
+    if not sources:
+        return None
+
+    total_up = 0
+    total_down = 0
+    try:
+        import json as _json
+        for src in sources:
+            url = (src.get("url") or "").rstrip("/")
+            user = src.get("username", "")
+            pwd = src.get("password", "")
+            if not url:
+                continue
+            try:
+                import urllib.request as _urllib_req
+                # Login to get session cookie
+                login_url = f"{url}/login"
+                login_data = _json.dumps({"username": user, "password": pwd}).encode()
+                req = _urllib_req.Request(login_url, data=login_data, method="POST")
+                req.add_header("Content-Type", "application/json")
+                resp = _urllib_req.urlopen(req, timeout=10)
+                body = _json.loads(resp.read())
+                if not body.get("success"):
+                    continue
+                cookie = resp.headers.get("Set-Cookie", "")
+
+                # Fetch inbounds with traffic stats
+                api_url = f"{url}/panel/api/inbounds/list"
+                req2 = _urllib_req.Request(api_url)
+                if cookie:
+                    req2.add_header("Cookie", cookie)
+                resp2 = _urllib_req.urlopen(req2, timeout=10)
+                data = _json.loads(resp2.read())
+                if not data.get("success"):
+                    continue
+                for ib in (data.get("obj") or []):
+                    total_up += ib.get("up", 0) or 0
+                    total_down += ib.get("down", 0) or 0
+            except Exception:  # noqa: BLE001 - skip failing source
+                continue
+
+        result = {
+            "upload": total_up,
+            "download": total_down,
+            "total": total_up + total_down,
+        }
+        _traffic_cache["data"] = result
+        _traffic_cache["ts"] = now
+        return result
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _format_subscription_userinfo(traffic):
+    """Format traffic dict into Subscription-Userinfo header value."""
+    if traffic is None:
+        return "upload=0; download=0; total=0; expire=0"
+    up = traffic.get("upload", 0) or 0
+    down = traffic.get("download", 0) or 0
+    total = traffic.get("total", 0) or (up + down)
+    return f"upload={up}; download={down}; total={total}; expire=0"
 
 
 def _run_auto_update_once(gcfg):
