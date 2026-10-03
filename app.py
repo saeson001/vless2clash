@@ -7,6 +7,9 @@ Flask Web Application for converting VLESS links to Clash/Mihomo Party compatibl
 import re
 import os
 import glob
+import io
+import shutil
+import tarfile
 import json
 import time
 import base64
@@ -2875,6 +2878,144 @@ def admin_daily_stats():
         "today_count": today_count,
         "week_count": week_count,
         "daily": daily,
+    })
+
+
+# ---------------- 备份与恢复（data/ + downloads/ 目录快照） ----------------
+
+BACKUP_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backups")
+DATA_DIR = os.path.dirname(DB_PATH)
+_BACKUP_MAX_UPLOAD = 64 * 1024 * 1024   # 上传包体积上限
+_BACKUP_MAX_TOTAL = 256 * 1024 * 1024   # 解压后总体积上限
+
+
+def _build_backup_archive():
+    """把 data/ 与 downloads/ 的文件打包为内存中的 tar.gz。
+
+    返回 (BytesIO, 文件清单)。sqlite 的 -wal/-shm 临时文件不进备份；
+    records.db 每次请求都是新连接，替换文件后下一次请求即读新库。
+    """
+    buf = io.BytesIO()
+    manifest = []
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for arc_prefix, src_dir in (("data", DATA_DIR), ("downloads", DOWNLOADS_DIR)):
+            if not os.path.isdir(src_dir):
+                continue
+            for name in sorted(os.listdir(src_dir)):
+                p = os.path.join(src_dir, name)
+                if not os.path.isfile(p):
+                    continue
+                if name.endswith(("-wal", "-shm")):
+                    continue
+                tf.add(p, arcname=f"{arc_prefix}/{name}")
+                manifest.append(f"{arc_prefix}/{name}")
+                if buf.tell() > _BACKUP_MAX_TOTAL:
+                    raise ValueError("backup archive exceeds size limit")
+    return buf, manifest
+
+
+@app.route("/api/admin/backup", methods=["GET"])
+def admin_backup():
+    """下载 data/ + downloads/ 的 tar.gz 快照（跨 VPS 迁移 / 日常备份）。"""
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+    try:
+        buf, _manifest = _build_backup_archive()
+    except ValueError:
+        return jsonify({"error": "备份体积超出上限"}), 400
+    buf.seek(0)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    return Response(
+        buf.getvalue(),
+        mimetype="application/gzip",
+        headers={"Content-Disposition": f"attachment; filename=vless2clash-backup-{ts}.tar.gz"},
+    )
+
+
+@app.route("/api/admin/restore", methods=["POST"])
+def admin_restore():
+    """从 /api/admin/backup 生成的 tar.gz 恢复 data/ 与 downloads/。
+
+    逐成员白名单校验（只允许 data/ 与 downloads/ 下的普通文件，拒绝路径
+    穿越）；恢复前把现有 data/ 与 downloads/ 整体挪到 backups/ 下留存，
+    失败自动回滚。
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+    f = request.files.get("file")
+    if f is None or not f.filename:
+        return jsonify({"error": "缺少上传文件字段 file"}), 400
+    blob = f.read()
+    if len(blob) > _BACKUP_MAX_UPLOAD:
+        return jsonify({"error": "备份文件过大"}), 400
+    try:
+        tf = tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz")
+    except tarfile.ReadError:
+        return jsonify({"error": "无法解析备份文件（需要 .tar.gz 格式）"}), 400
+
+    cleaned = []
+    total = 0
+    try:
+        for m in tf.getmembers():
+            if m.isdir():
+                continue
+            name = m.name.replace("\\", "/").lstrip("/")
+            if (not name.startswith(("data/", "downloads/"))
+                    or ".." in name.split("/")
+                    or not m.isfile()):
+                return jsonify({"error": f"备份包含不允许的成员: {m.name}"}), 400
+            total += m.size
+            if total > _BACKUP_MAX_TOTAL:
+                return jsonify({"error": "备份数据过大"}), 400
+            cleaned.append((m, name))
+    except tarfile.TarError:
+        return jsonify({"error": "备份文件损坏"}), 400
+
+    if not any(name == "data/records.db" for _m, name in cleaned):
+        return jsonify({"error": "备份缺少 data/records.db"}), 400
+
+    base_dir = os.path.dirname(DATA_DIR)
+    stage = os.path.join(base_dir, f".restore-stage-{int(time.time() * 1000)}")
+    keep = os.path.join(BACKUP_ROOT, f"before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
+    if os.path.exists(stage):
+        shutil.rmtree(stage)
+    os.makedirs(stage)
+    try:
+        for m, _name in cleaned:
+            tf.extract(m, stage)
+        if not os.path.isfile(os.path.join(stage, "data", "records.db")):
+            raise ValueError("解压后缺少 records.db")
+
+        os.makedirs(BACKUP_ROOT, exist_ok=True)
+        os.makedirs(keep, exist_ok=True)
+        moved = []
+        for src, arc in ((DATA_DIR, "data"), (DOWNLOADS_DIR, "downloads")):
+            if os.path.isdir(src):
+                os.rename(src, os.path.join(keep, arc))
+                moved.append((src, arc))
+        try:
+            os.rename(os.path.join(stage, "data"), DATA_DIR)
+            if os.path.isdir(os.path.join(stage, "downloads")):
+                os.rename(os.path.join(stage, "downloads"), DOWNLOADS_DIR)
+        except OSError:
+            # 回滚：把留存目录原样搬回去
+            for src, arc in moved:
+                dst = DATA_DIR if arc == "data" else DOWNLOADS_DIR
+                if os.path.exists(dst):
+                    shutil.rmtree(dst, ignore_errors=True)
+                os.rename(os.path.join(keep, arc), dst)
+            return jsonify({"error": "恢复失败：目录替换被系统拒绝"}), 500
+    except Exception as exc:
+        shutil.rmtree(stage, ignore_errors=True)
+        return jsonify({"error": f"恢复失败: {exc}"}), 500
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+    return jsonify({
+        "success": True,
+        "restored": [name for _m, name in cleaned],
+        "message": ("恢复完成，数据库与管理员账密已替换为备份内容，当前数据已留存于 backups/ 目录。"
+                    "如备份来自其他实例，请重新登录，并执行「一键更新全部」重新生成 YAML。"),
     })
 
 
