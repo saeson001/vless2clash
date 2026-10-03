@@ -238,6 +238,27 @@
             </div>
 
             <!-- IP Ranking (collapsible, collapsed by default) -->
+            <!-- Backup & Restore -->
+            <div class="card" id="backup-card">
+                <div class="card-header collapsible-header" onclick="togglePanel('backup')" id="backup-header">
+                    <span class="card-icon">💾</span>
+                    <h2>备份与恢复</h2>
+                    <span class="toggle-arrow" id="backup-arrow">▶</span>
+                </div>
+                <div class="collapsible-content" id="backup-content" style="display:none;">
+                    <p style="font-size:13px;color:#6b7280;margin-bottom:10px;">
+                        备份包含数据库（转换记录、管理员账密、密钥）与已生成的 YAML。恢复前当前数据会自动留存到 backups/ 目录；从其他实例恢复后请重新登录并执行「一键更新全部」。
+                    </p>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                        <button class="btn btn-primary" onclick="downloadBackup()">下载备份</button>
+                        <input type="file" id="restore-file" accept=".tar.gz,.tgz" style="display:none;" onchange="doRestore(this.files[0])">
+                        <button class="btn btn-secondary" onclick="document.getElementById('restore-file').click()">上传恢复</button>
+                        <span id="backup-status" style="font-size:13px;color:#6b7280;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top IPs (collapsible) -->
             <div class="card" id="top-ips-card" data-page-node-id="G62fDYEnL1CmDWDCop9ccR">
                 <div class="card-header collapsible-header" onclick="togglePanel('top-ips')" id="top-ips-header" data-page-node-id="CZzIGJZXoxy6BadM3JfZdl">
                     <span class="card-icon" data-page-node-id="EKNYpeNoVA2aaghX4hk6U7">📍</span>
@@ -540,6 +561,45 @@
 
     <script>
         const ADMIN_LOGGED_IN = {{ logged_in | tojson | safe if logged_in is not none else 'false' }};
+
+        function downloadBackup() {
+            const st = document.getElementById('backup-status');
+            st.textContent = '正在打包...';
+            fetch('/api/admin/backup').then(r => {
+                if (r.status === 401) { st.textContent = '请先登录管理后台'; return null; }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const cd = r.headers.get('Content-Disposition') || '';
+                const m = cd.match(/filename=([^;]+)/);
+                const name = m ? m[1] : 'vless2clash-backup.tar.gz';
+                return r.blob().then(b => ({ b, name }));
+            }).then(x => {
+                if (!x) return;
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(x.b);
+                a.download = x.name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(a.href);
+                st.textContent = '备份已下载';
+            }).catch(e => { st.textContent = '备份失败: ' + e; });
+        }
+
+        function doRestore(file) {
+            if (!file) return;
+            if (!confirm('恢复将覆盖当前全部记录与管理员账密（当前数据自动留存到 backups/）。确定继续？')) return;
+            const st = document.getElementById('backup-status');
+            st.textContent = '正在恢复...';
+            const fd = new FormData();
+            fd.append('file', file);
+            fetch('/api/admin/restore', { method: 'POST', body: fd })
+                .then(r => r.json().then(j => ({ ok: r.ok, j })))
+                .then(({ ok, j }) => {
+                    st.textContent = (ok ? '✅ ' : '❌ ') + (j.message || j.error || '');
+                    if (ok) setTimeout(() => location.reload(), 3000);
+                })
+                .catch(e => { st.textContent = '恢复失败: ' + e; });
+        }
     </script>
     <script src="{{ url_for('static', filename='js/manage.js') }}?v={{ version }}"></script>
 </body>
