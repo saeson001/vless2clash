@@ -243,9 +243,9 @@
                 <div class="card-header collapsible-header" onclick="togglePanel('backup')" id="backup-header">
                     <span class="card-icon">💾</span>
                     <h2>备份与恢复</h2>
-                    <span class="toggle-arrow" id="backup-arrow">▶</span>
+                    <span class="toggle-arrow" id="backup-arrow">▼</span>
                 </div>
-                <div class="collapsible-content" id="backup-content" style="display:none;">
+                <div class="collapsible-content" id="backup-content">
                     <p style="font-size:13px;color:#6b7280;margin-bottom:10px;">
                         备份包含数据库（转换记录、管理员账密、密钥）与已生成的 YAML。恢复前当前数据会自动留存到 backups/ 目录；从其他实例恢复后请重新登录并执行「一键更新全部」。
                     </p>
