@@ -594,7 +594,7 @@ Type=simple
 User=${APP_USER}
 Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
-ExecStart=${APP_DIR}/venv/bin/gunicorn --workers 2 --preload --bind 0.0.0.0:${APP_PORT} --timeout 30 --forwarded-allow-ips='*' --proxy-protocol-allow-ips='*' app:app
+ExecStart=${APP_DIR}/venv/bin/gunicorn --workers 2 --preload --bind 0.0.0.0:${APP_PORT} --timeout 30 --forwarded-allow-ips='*' app:app
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
