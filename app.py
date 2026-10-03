@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.40"
+APP_VERSION = "v1.6.41"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -3238,23 +3238,22 @@ def _normalize_panel_base(u):
 
 
 def _panel_identity(url):
-    """Return a port-agnostic panel identity string (scheme + host + path).
+    """Return a port- and path-agnostic panel identity string (scheme + host).
 
-    3x-ui exposes the same panel on two ports: *webPort* (UI/login) and
-    *subPort* (subscriptions).  A subscription link uses subPort while the
-    traffic-source config naturally uses webPort.  Stripping the port lets
-    them match as the same panel.
+    3x-ui exposes the same panel on two ports: *webPort* (UI/login, possibly
+    under a webBasePath) and *subPort* (subscriptions, no base path).  A
+    subscription link uses subPort while the traffic-source config naturally
+    uses webPort, so neither the port nor the path can be part of the
+    identity — a panel behind ``http://IP:8284/VrtU1GGr/`` and its own
+    ``http://IP:2096/clash/<subid>`` links must match as one panel.
     """
     u = _normalize_panel_base(url)
     if not u:
         return ""
     try:
         p = __import__("urllib.parse", fromlist=[""]).urlparse(u)
-        # Rebuild without port: scheme://hostname/path
-        base = "%s://%s" % (p.scheme or "http", p.hostname or "")
-        if p.path and p.path != "/":
-            base += p.path.rstrip("/")
-        return base.lower()
+        # Rebuild without port and without path: scheme://hostname
+        return "%s://%s" % (p.scheme or "http", p.hostname or "")
     except Exception:
         return u
 
