@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.43"
+APP_VERSION = "v1.6.44"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -587,6 +587,18 @@ init_admin()
 # VLESS Parser & YAML Generator
 # ---------------------------------------------------------------------------
 
+def _is_ip_address(host):
+    """True when host is a literal IPv4/IPv6 address. A TLS node whose server
+    is a bare IP cannot present a CA-valid certificate (no domain to issue
+    for), so clients must skip certificate verification."""
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
 def parse_vless(vless_url):
     """Parse a VLESS URL into a proxy config dict.
 
@@ -693,12 +705,17 @@ def parse_vless(vless_url):
             proxy["client-fingerprint"] = params["fp"]
 
     elif security == "tls":
-        if "sni" in params:
+        if params.get("sni"):
             proxy["servername"] = params["sni"]
         if "fp" in params:
             proxy["client-fingerprint"] = params["fp"]
         if "alpn" in params:
             proxy["alpn"] = params["alpn"].split(",")
+        # v1.6.44: TLS 节点自签证书支持 — 3x-ui 的 TLS 入站在服务器为裸 IP 时
+        # 只能配自签证书(无域名无法 CA 签发), 链接可能带 allowInsecure=1 也可能
+        # 不带(如 8443 入站)。两种情况都给 mihomo/Clash 输出 skip-cert-verify。
+        if params.get("allowInsecure") in ("1", "true") or _is_ip_address(server):
+            proxy["skip-cert-verify"] = True
 
     # WebSocket options
     if network == "ws":
@@ -1625,6 +1642,8 @@ def _emit_vless(lines, p):
             lines.append(f'      short-id: {ro["short-id"]}')
     if "client-fingerprint" in p:
         lines.append(f'    client-fingerprint: {p["client-fingerprint"]}')
+    if "skip-cert-verify" in p:
+        lines.append(f'    skip-cert-verify: {str(p["skip-cert-verify"]).lower()}')
     if "alpn" in p:
         alpn_str = ", ".join(p["alpn"])
         lines.append(f'    alpn: [{alpn_str}]')
