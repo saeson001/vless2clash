@@ -1450,6 +1450,21 @@ def generate_clash_yaml(proxies, config=None):
     lines.append("    - '*.stun.*.*'")
     lines.append("")
 
+    # Sniffer (v1.6.44): 嗅探内层 TLS SNI / HTTP Host 并覆写目标地址。
+    # 国内 DNS 对国外域名返回污染解析(如 youtube -> Facebook IP), 若把解析出的
+    # IP 当作拨号目标, 隧道服务端会去连假 IP 导致超时; 嗅探后按真实域名远程解析,
+    # 彻底绕开 DNS 污染。
+    lines.append("sniffer:")
+    lines.append("  enable: true")
+    lines.append("  override-destination: true")
+    lines.append("  sniff:")
+    lines.append("    TLS:")
+    lines.append("      ports: [443, 8443]")
+    lines.append("    HTTP:")
+    lines.append("      ports: [80, 8080-8880]")
+    lines.append("      override-destination: true")
+    lines.append("")
+
     # Proxies
     lines.append("proxies:")
     for p in proxies:
