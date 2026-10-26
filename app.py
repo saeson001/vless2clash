@@ -241,6 +241,12 @@ rule-providers:
     interval: 86400
     format: binary
     behavior: domain
+  geosite-not-cn:
+    type: http
+    url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat"
+    interval: 86400
+    format: binary
+    behavior: domain
   geoip-cn:
     type: http
     url: "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat"
@@ -250,6 +256,7 @@ rule-providers:
 
 rules:
   - RULE-SET,geosite-cn,DIRECT
+  - RULE-SET,geosite-not-cn,{{DEFAULT_GROUP}}
   - RULE-SET,geoip-cn,DIRECT
   - GEOIP,LAN,DIRECT
   - GEOIP,PRIVATE,DIRECT
@@ -1186,6 +1193,12 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("    interval: 86400")
         lines.append("    format: binary")
         lines.append("    behavior: domain")
+        lines.append("  geosite-not-cn:")
+        lines.append("    type: http")
+        lines.append("    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geosite.dat\"")
+        lines.append("    interval: 86400")
+        lines.append("    format: binary")
+        lines.append("    behavior: domain")
         lines.append("  geoip-cn:")
         lines.append("    type: http")
         lines.append("    url: \"https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/geoip.dat\"")
@@ -1195,6 +1208,7 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
         lines.append("")
         lines.append("rules:")
         lines.append("  - RULE-SET,geosite-cn,DIRECT")
+        lines.append("  - RULE-SET,geosite-not-cn,%s" % (DEFAULT_GROUP_NAME if ai_routing else group_name))
         lines.append("  - RULE-SET,geoip-cn,DIRECT")
         lines.append("  - GEOIP,LAN,DIRECT")
         lines.append("  - GEOIP,PRIVATE,DIRECT")
@@ -1269,7 +1283,15 @@ def _emit_rules(lines, group_name, rules_mode="basic", ai_routing=False, ai_japa
     # GEOIP is essential: many CN sites use .com/.net domains not in the list
     # above; without it they fall through to MATCH -> proxy and become
     # unreachable from a foreign node.
+    #
+    # GEOSITE,geolocation-!cn MUST sit before GEOIP,CN: Chinese DNS resolves
+    # google.com to Google-China IPs (203.208.x.x = GEOIP CN), which would
+    # otherwise route google.com DIRECT where Google's China edge rejects the
+    # SNI — browser shows 打不开 while youtube.com (resolved to foreign
+    # garbage IPs by the same DNS) falls through to MATCH -> proxied -> works.
+    _proxy_group = DEFAULT_GROUP_NAME if ai_routing else group_name
     lines.append("  - GEOSITE,cn,DIRECT")
+    lines.append(f"  - GEOSITE,geolocation-!cn,{_proxy_group}")
     lines.append("  - GEOIP,CN,DIRECT")
 
     # Final fallback -> proxy

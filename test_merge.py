@@ -120,6 +120,30 @@ y9 = generate_clash_yaml(proxies9, {"merge_groups": mg9, "merge_same_name": True
 check("组名=rz", '  - name: "rz"\n    type: select' in y9)
 check("组内含香港/日本两个出口", '- "香港-rz|📊50.00GB|⏳95D"' in y9 and '- "日本-rz|📊50.00GB|⏳95D"' in y9)
 
+print("=" * 30, "T10 国外域名规则先于 GEOIP (google.com 修复)", "=" * 30)
+y10 = generate_clash_yaml(proxies3, {"merge_groups": {}, "merge_same_name": True, "rules_mode": "basic"})
+r10 = [ln.strip()[2:] for ln in y10.splitlines() if ln.strip().startswith("- ")]
+i_geo = next((i for i, r in enumerate(r10) if r.startswith("GEOSITE,geolocation-!cn")), -1)
+i_cn = next((i for i, r in enumerate(r10) if r == "GEOSITE,cn,DIRECT"), -1)
+i_gip = next((i for i, r in enumerate(r10) if r.startswith("GEOIP,CN")), -1)
+check("规则存在", "GEOSITE,geolocation-!cn,节点选择" in y10)
+check("顺序: cn直连 < 国外代理 < GEOIP", 0 <= i_cn < i_geo < i_gip, f"{i_cn},{i_geo},{i_gip}")
+if i_geo == -1:
+    print("[DEBUG] rules 段尾部:")
+    for ln in y10.splitlines():
+        if ln.strip().startswith(("- GEOSITE", "- GEOIP", "- MATCH")):
+            print("   ", ln.strip())
+
+print("=" * 30, "T11 AI 模式下国外域名走默认分流", "=" * 30)
+y11 = generate_clash_yaml(proxies3, {"merge_groups": {}, "merge_same_name": True, "rules_mode": "basic",
+                                     "ai_routing": True, "ai_japan": "日本-东京", "ai_hongkong": "香港-超拽"})
+check("geolocation-!cn -> 默认分流", "GEOSITE,geolocation-!cn,默认分流" in y11)
+
+print("=" * 30, "T12 remote 模式 rule-provider 修复", "=" * 30)
+y12 = generate_clash_yaml(proxies3, {"merge_groups": {}, "merge_same_name": True, "rules_mode": "remote"})
+check("provider geosite-not-cn 存在", "  geosite-not-cn:" in y12)
+check("RULE-SET 顺序正确", y12.find("RULE-SET,geosite-cn,DIRECT") < y12.find("RULE-SET,geosite-not-cn,节点选择") < y12.find("RULE-SET,geoip-cn,DIRECT"))
+
 print()
 print(f"===== 结果: {PASS} PASS / {FAIL} FAIL =====")
 sys.exit(1 if FAIL else 0)
