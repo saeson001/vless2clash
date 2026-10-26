@@ -1,4 +1,4 @@
-"""v1.6.42 同名合并 + 多源拉取功能测试（本地，不依赖网络）"""
+"""v1.6.42/43 同名合并 + 多源拉取功能测试（本地，不依赖网络；v1.6.43 起地区前缀剥离）"""
 import sys, os
 sys.path.insert(0, r'C:\Users\Administrator\WorkBuddy\2026-08-08-23-49-43\vless2clash')
 os.chdir(r'C:\Users\Administrator\WorkBuddy\2026-08-08-23-49-43\vless2clash')
@@ -31,44 +31,43 @@ proxies, errors, merge_groups = _parse_links_and_subs(raw, "")
 check("解析 3 节点", len(proxies) == 3, f"got {len(proxies)}")
 check("无错误", not errors, str(errors))
 check("旧式重命名保留", proxies[1]["name"] == "香港-超拽_1", proxies[1]["name"])
-check("merge_groups 内容", merge_groups == {"香港-超拽": ["香港-超拽", "香港-超拽_1"]}, str(merge_groups))
+check("地区前缀剥离后归组到 超拽", merge_groups == {"超拽": ["香港-超拽", "香港-超拽_1"]}, str(merge_groups))
 
 print("=" * 30, "T2 合并开启: YAML 组结构", "=" * 30)
 cfg = {"merge_groups": merge_groups, "merge_same_name": True}
 y = generate_clash_yaml(proxies, dict(cfg))
-check("proxies 段为 ·1/·2 重命名", '- name: "香港-超拽·1"' in y and '- name: "香港-超拽·2"' in y)
-check("不再有旧 _1 名", '- name: "香港-超拽_1"' not in y)
-check("存在同名合并组", '  - name: "香港-超拽"\n    type: select' in y)
-check("组内含两个变体", '- "香港-超拽·1"' in y and '- "香港-超拽·2"' in y)
-check("节点选择引用组名而非变体", '- "香港-超拽"\n' in y)
-check("合并组在自动选择之后", y.find('- name: "自动选择"') < y.find('  - name: "香港-超拽"\n    type: select'))
-# 独立节点仍直接出现在节点选择
+check("成员保留完整名", '- name: "香港-超拽"' in y and '- name: "香港-超拽_1"' in y)
+check("存在合并组(组名=剥离地区后的主体名)", '  - name: "超拽"\n    type: select' in y)
+check("组内含两个变体", '- "香港-超拽"' in y and '- "香港-超拽_1"' in y)
+check("节点选择引用组名", '- "超拽"' in y)
+check("合并组在自动选择之后", y.find('- name: "自动选择"') < y.find('  - name: "超拽"\n    type: select'))
 check("独立节点仍在节点选择", '- "日本-东京"' in y)
 
 print("=" * 30, "T3 合并关闭: 行为回退", "=" * 30)
 proxies2, _, mg2 = _parse_links_and_subs(raw, "")
 y2 = generate_clash_yaml(proxies2, {"merge_groups": mg2, "merge_same_name": False})
 check("关闭时保留 _1 平铺", '- name: "香港-超拽_1"' in y2)
-check("关闭时无合并组", '    type: select\n    proxies:\n      - "香港-超拽·1"' not in y2)
+check("关闭时无合并组", '- name: "超拽"\n    type: select' not in y2)
 
 print("=" * 30, "T4 不同名: 无合并", "=" * 30)
 proxies3, _, mg3 = _parse_links_and_subs(L1 + "\n" + L3, "")
 check("无重名无分组", mg3 == {}, str(mg3))
 y3 = generate_clash_yaml(proxies3, {"merge_groups": mg3, "merge_same_name": True})
-check("名字保持原样", '- name: "香港-超拽"' in y3 and '·1' not in y3)
+check("名字保持原样", '- name: "香港-超拽"' in y3 and '- name: "日本-东京"' in y3)
 
-print("=" * 30, "T5 三个同名: ·1/·2/·3", "=" * 30)
+print("=" * 30, "T5 三个同名: 三个成员", "=" * 30)
 proxies4, _, mg4 = _parse_links_and_subs(L1 + "\n" + L2 + "\n" + L1.replace("uuid-1111", "uuid-9999").replace("1.1.1.1", "9.9.9.9").replace("PBK1", "PBK9").replace("111111", "999999"), "")
-check("3 变体", mg4.get("香港-超拽") == ["香港-超拽", "香港-超拽_1", "香港-超拽_2"], str(mg4))
+check("3 变体归组", mg4.get("超拽") == ["香港-超拽", "香港-超拽_1", "香港-超拽_2"], str(mg4))
 y4 = generate_clash_yaml(proxies4, {"merge_groups": mg4, "merge_same_name": True})
-check("·3 生成", '- name: "香港-超拽·3"' in y4)
+check("组内 3 成员", '- "香港-超拽_2"' in y4)
+check("组名仍为 超拽", '  - name: "超拽"\n    type: select' in y4)
 
 print("=" * 30, "T6 AI 分流与合并共存", "=" * 30)
 proxies5, _, mg5 = _parse_links_and_subs(raw, "")
 cfg5 = {"merge_groups": mg5, "merge_same_name": True, "ai_routing": True,
         "ai_japan": "日本-东京", "ai_hongkong": "香港-超拽_1"}  # 选了变体名
 y5 = generate_clash_yaml(proxies5, cfg5)
-check("AI 香港成员映射到合并组", '- "香港-超拽"\n    ' in y5 or '- "香港-超拽"\r' in y5 or '- "香港-超拽"' in y5)
+check("AI 香港成员映射到合并组", '- "超拽"' in y5)
 check("默认分流组存在", '- name: "默认分流"' in y5)
 check("AI 分流组存在", '- name: "AI 分流"' in y5)
 
@@ -87,7 +86,7 @@ try:
 finally:
     app.fetch_subscription = orig
 check("两个源都被拉取", calls == ["http://185.1.1.1:2096/sub/aaa", "http://38.9.9.9:2096/sub/bbb"], str(calls))
-check("两源同名进 merge_groups", m6 == {"香港-超拽": ["香港-超拽", "香港-超拽_1"]}, str(m6))
+check("两源同名进 merge_groups", m6 == {"超拽": ["香港-超拽", "香港-超拽_1"]}, str(m6))
 check("无错误", not e6, str(e6))
 
 print("=" * 30, "T8 真实面板风格: |流量|天数 后缀", "=" * 30)
@@ -100,13 +99,26 @@ RB = ("vless://uuid-rb@22.22.22.22:443?type=tcp&encryption=none&security=reality
 import urllib.parse
 proxies8, e8, mg8 = _parse_links_and_subs(
     RA + urllib.parse.quote(N1) + "\n" + RB + urllib.parse.quote(N2), "")
-check("主体名归组", mg8 == {"香港-超拽": [N1, N2]}, str(mg8))
+check("主体名归组", mg8 == {"超拽": [N1, N2]}, str(mg8))
 y8 = generate_clash_yaml(proxies8, {"merge_groups": mg8, "merge_same_name": True})
-check("组名=主体名", '  - name: "香港-超拽"\n    type: select' in y8)
+check("组名=主体名", '  - name: "超拽"\n    type: select' in y8)
 check("成员保留完整名(含各自流量)", '- "香港-超拽|📊50.00GB|⏳95D"' in y8 and '- "香港-超拽|📊50.00GB|⏳96D"' in y8)
-check("无 ·N 重命名", '·1' not in y8)
-check("节点选择引用主体名", '- "香港-超拽"\n' in y8)
-check("主体名不再作为独立节点出现两次", y8.count('- name: "香港-超拽"\n    type: vless') == 0)
+check("节点选择引用主体名", '- "超拽"' in y8)
+check("主体名不再作为独立节点出现两次", y8.count('- name: "超拽"\n    type: vless') == 0)
+
+print("=" * 30, "T9 地区前缀不同: 香港-X 与 日本-X 合并", "=" * 30)
+NA = "香港-rz|📊50.00GB|⏳95D"
+NB = "日本-rz|📊50.00GB|⏳95D"
+PA = ("vless://uuid-pa@11.11.11.11:443?type=tcp&encryption=none&security=reality"
+      "&sni=www.microsoft.com&pbk=PBK1&sid=111111&fp=chrome#")
+PB = ("vless://uuid-pb@22.22.22.22:443?type=tcp&encryption=none&security=reality"
+      "&sni=www.microsoft.com&pbk=PBK2&sid=222222&fp=chrome#")
+proxies9, e9, mg9 = _parse_links_and_subs(
+    PA + urllib.parse.quote(NA) + "\n" + PB + urllib.parse.quote(NB), "")
+check("地区前缀剥离后归组", mg9 == {"rz": [NA, NB]}, str(mg9))
+y9 = generate_clash_yaml(proxies9, {"merge_groups": mg9, "merge_same_name": True})
+check("组名=rz", '  - name: "rz"\n    type: select' in y9)
+check("组内含香港/日本两个出口", '- "香港-rz|📊50.00GB|⏳95D"' in y9 and '- "日本-rz|📊50.00GB|⏳95D"' in y9)
 
 print()
 print(f"===== 结果: {PASS} PASS / {FAIL} FAIL =====")

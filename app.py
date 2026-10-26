@@ -1833,12 +1833,29 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     seen_bases = {}
     dup_groups = {}
 
+    # Region labels that 3x-ui inbound remarks commonly prefix node names with
+    # (node name = `{remark}-{email}|📊..|⏳..`). The SAME client on two VPSes
+    # often exits via differently-labelled inbounds (香港-rz vs 日本-rz), so the
+    # merge key strips one leading known region word too.
+    _REGION_PREFIXES = (
+        "香港", "hongkong", "hk", "日本", "japan", "jp", "台湾", "taiwan", "tw",
+        "美国", "united states", "us", "新加坡", "singapore", "sg", "韩国", "korea", "kr",
+        "英国", "uk", "德国", "germany", "de", "法国", "france", "fr", "俄罗斯", "russia", "ru",
+        "土耳其", "turkey", "tr", "马来", "malaysia", "my", "泰国", "thailand", "th",
+        "菲律宾", "philippines", "ph", "越南", "vietnam", "vn", "印度", "india", "in",
+        "阿根廷", "argentina", "ar", "加拿大", "canada", "ca", "澳洲", "澳大利亚", "australia", "au",
+    )
+
     def _base_key(name):
         """Merge key: strip the trailing `|📊50GB|⏳96D` suffix 3x-ui appends to
-        remarks. Two panels show different traffic numbers for the same client,
-        so full-name matching would never merge them; the part before the first
-        `|` is the stable identity."""
+        remarks (the two panels show different traffic numbers) and one leading
+        region label; the remainder is the stable client identity."""
         key = name.split("|")[0].strip()
+        low = key.lower()
+        for reg in _REGION_PREFIXES:
+            if low.startswith(reg + "-") or low.startswith(reg + "_"):
+                key = key[len(reg) + 1:]
+                break
         return key or name
 
     def add_proxy(proxy):
