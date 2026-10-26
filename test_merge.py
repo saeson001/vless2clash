@@ -90,6 +90,24 @@ check("两个源都被拉取", calls == ["http://185.1.1.1:2096/sub/aaa", "http:
 check("两源同名进 merge_groups", m6 == {"香港-超拽": ["香港-超拽", "香港-超拽_1"]}, str(m6))
 check("无错误", not e6, str(e6))
 
+print("=" * 30, "T8 真实面板风格: |流量|天数 后缀", "=" * 30)
+N1 = "香港-超拽|📊50.00GB|⏳95D"
+N2 = "香港-超拽|📊50.00GB|⏳96D"
+RA = ("vless://uuid-ra@11.11.11.11:443?type=tcp&encryption=none&security=reality"
+      "&sni=www.microsoft.com&pbk=PBK1&sid=111111&fp=chrome#")
+RB = ("vless://uuid-rb@22.22.22.22:443?type=tcp&encryption=none&security=reality"
+      "&sni=www.microsoft.com&pbk=PBK2&sid=222222&fp=chrome#")
+import urllib.parse
+proxies8, e8, mg8 = _parse_links_and_subs(
+    RA + urllib.parse.quote(N1) + "\n" + RB + urllib.parse.quote(N2), "")
+check("主体名归组", mg8 == {"香港-超拽": [N1, N2]}, str(mg8))
+y8 = generate_clash_yaml(proxies8, {"merge_groups": mg8, "merge_same_name": True})
+check("组名=主体名", '  - name: "香港-超拽"\n    type: select' in y8)
+check("成员保留完整名(含各自流量)", '- "香港-超拽|📊50.00GB|⏳95D"' in y8 and '- "香港-超拽|📊50.00GB|⏳96D"' in y8)
+check("无 ·N 重命名", '·1' not in y8)
+check("节点选择引用主体名", '- "香港-超拽"\n' in y8)
+check("主体名不再作为独立节点出现两次", y8.count('- name: "香港-超拽"\n    type: vless') == 0)
+
 print()
 print(f"===== 结果: {PASS} PASS / {FAIL} FAIL =====")
 sys.exit(1 if FAIL else 0)

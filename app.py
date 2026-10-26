@@ -1323,13 +1323,21 @@ def generate_clash_yaml(proxies, config=None):
     if not merge_same_name:
         merge_groups = {}
 
-    # Rename variants `base / base_1 / base_2 ...` to `base·1 / base·2 ...` so
-    # the merged group (named `base`) never collides with a proxy name — mihomo
-    # forbids a proxy and a group sharing the same name. Nested groups (a base
-    # that is itself a variant of an earlier group) are absorbed and skipped.
+    # Group members keep their full names when the `|📊…|⏳…` traffic suffix
+    # makes them naturally unique per VPS (also useful info inside the group).
+    # Bare duplicates (remark without suffix, incl. legacy `base_N` renames) are
+    # renumbered `base·N` — mihomo forbids a proxy and a group sharing a name.
+    # Nested groups (a base that is itself a member of an earlier group) are
+    # absorbed.
     old_names = [p["name"] for p in proxies]
     renumber = {}
-    effective_groups = []  # (base, [old variant names]) actually emitted
+    effective_groups = []  # (base, [old member names]) actually emitted
+
+    def _is_bare_variant(base, name):
+        if name == base:
+            return True
+        return name.startswith(base + "_") and name[len(base) + 1:].isdigit()
+
     for base, variants in merge_groups.items():
         if base in renumber:
             continue
@@ -1338,11 +1346,12 @@ def generate_clash_yaml(proxies, config=None):
         for old in variants:
             if old in renumber:
                 continue
-            idx += 1
-            renumber[old] = f"{base}·{idx}"
+            if _is_bare_variant(base, old):
+                idx += 1
+                renumber[old] = f"{base}·{idx}"
             members.append(old)
         effective_groups.append((base, members))
-    group_of = {}  # old variant name -> merged group name (for member refs)
+    group_of = {}  # old member name -> merged group name (for member refs)
     for base, members in effective_groups:
         for old in members:
             group_of[old] = base
@@ -1559,7 +1568,7 @@ def generate_clash_yaml(proxies, config=None):
         lines.append(f'    type: select')
         lines.append(f'    proxies:')
         for _old in members:
-            lines.append(f'      - "{renumber[_old]}"')
+            lines.append(f'      - "{renumber.get(_old, _old)}"')
         lines.append("")
     if effective_groups:
         lines.append("")
@@ -1821,16 +1830,32 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     proxies = []
     errors = []
     seen_names = {}
+    seen_bases = {}
     dup_groups = {}
+
+    def _base_key(name):
+        """Merge key: strip the trailing `|📊50GB|⏳96D` suffix 3x-ui appends to
+        remarks. Two panels show different traffic numbers for the same client,
+        so full-name matching would never merge them; the part before the first
+        `|` is the stable identity."""
+        key = name.split("|")[0].strip()
+        return key or name
 
     def add_proxy(proxy):
         name = proxy["name"]
-        if name in seen_names:
-            seen_names[name] += 1
-            new_name = f"{name}_{seen_names[name]}"
-            proxy["name"] = new_name
-            dup_groups.setdefault(name, [name]).append(new_name)
+        base = _base_key(name)
+        if base in seen_bases:
+            # Same display identity (possibly the same client on another VPS).
+            if name in seen_names:
+                # Exact duplicate full name — legacy suffix rename
+                seen_names[name] += 1
+                name = f"{name}_{seen_names[name]}"
+                proxy["name"] = name
+            variants = dup_groups.setdefault(base, [seen_bases[base]])
+            if name not in variants:
+                variants.append(name)
         else:
+            seen_bases[base] = name
             seen_names[name] = 0
         proxies.append(proxy)
 
