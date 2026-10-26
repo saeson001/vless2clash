@@ -1416,28 +1416,23 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f"log-level: {log_level}")
     lines.append("")
 
-    # DNS — best-practice for China: domestic DoH (HTTPS-encrypted, GFW-proof)
-    # so foreign domains (e.g. youtube.com) resolve correctly and fast. OpenClash
-    # ignores the subscription's dns: and uses its own DNS settings; this block
-    # makes the generated YAML self-sufficient for Clash Party / mihomo standalone
-    # (where the YouTube-slow DNS issue would otherwise recur after reinstall).
+    # DNS — v1.6.44: 国外域名的解析走代理组(DoH over proxy), 解析结果干净,
+    # 彻底解决"国内 DNS 污染解析 -> 污染 IP 被当作拨号目标 -> youtube/google
+    # 超时"的问题。fake-ip 模式下连接仍按域名进隧道; sniffer 嗅探 SNI 兜底。
+    # OpenClash 忽略订阅的 dns: 并使用自己的 DNS 设置; 此块让 Clash Party /
+    # mihomo 单机也能直接工作。proxy-server-nameserver 用国内 DoH 解析节点
+    # 自身的域名(如有)。
+    group = config.get("group_name", "节点选择")
     lines.append("dns:")
     lines.append("  enable: true")
     lines.append("  enhanced-mode: fake-ip")
     lines.append("  fake-ip-range: 198.18.0.1/16")
     lines.append("  use-hosts: true")
+    lines.append("  proxy-server-nameserver:")
+    lines.append("    - https://doh.pub/dns-query")
     lines.append("  nameserver:")
-    lines.append("    - https://doh.pub/dns-query")
-    lines.append("    - https://dns.alidns.com/dns-query")
-    lines.append("  fallback:")
-    lines.append("    - https://doh.pub/dns-query")
-    lines.append("    - https://dns.alidns.com/dns-query")
-    lines.append("  fallback-filter:")
-    lines.append("    geoip: true")
-    lines.append("    geoip-code: CN")
-    lines.append("    ipcidr:")
-    lines.append("      - 240.0.0.0/4")
-    lines.append("      - 0.0.0.0/32")
+    lines.append(f"    - 'https://dns.google/dns-query#{group}'")
+    lines.append(f"    - 'https://1.1.1.1/dns-query#{group}'")
     lines.append("  fake-ip-filter:")
     lines.append("    - '*.lan'")
     lines.append("    - '*.local'")
