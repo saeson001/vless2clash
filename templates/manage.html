@@ -124,6 +124,13 @@
                             <option value="false">关闭（默认首个节点）</option>
                         </select>
                     </div>
+                    <div class="config-item">
+                        <label>同名节点合并</label>
+                        <select id="gc-merge-same-name">
+                            <option value="true">开启（多 VPS 同名节点合成一个可选组）</option>
+                            <option value="false">关闭（同名节点平铺显示 xxx / xxx_1）</option>
+                        </select>
+                    </div>
                     <div class="config-item" data-page-node-id="7lzxlD2oDtF2bBqcNOvO3n">
                         <label data-page-node-id="yd9RAZW6oel6uOH8KMGQFA">混合端口</label>
                         <input type="number" id="gc-port" value="7890" data-page-node-id="1TZrxJQNAVS3CaTBVVElTG">
@@ -517,8 +524,8 @@
                         <textarea id="edit-subscriptions" rows="3" placeholder="每行一个订阅地址"></textarea>
                     </div>
                     <div class="form-group">
-                        <label>3x-ui 订阅链接（可选，自动同步）</label>
-                        <textarea id="edit-xui-sub" rows="2" placeholder="填写 3x-ui 面板的订阅链接后，刷新/更新会自动拉取 3x-ui 中最新链接（含已修正的 shortId），无需再手动粘贴"></textarea>
+<label>3x-ui 订阅链接（可选，自动同步）</label>
+<textarea id="edit-xui-sub" rows="4" placeholder="每行一个 3x-ui 面板的订阅链接（不同 VPS 各一行，可聚合多台服务器），刷新/更新会自动拉取 3x-ui 中最新链接（含已修正的 shortId），无需再手动粘贴；同名节点自动合并成一个可选组"></textarea>
                     </div>
                     <div id="edit-error" class="login-error" style="display:none;" data-page-node-id="YqUfZciSfQQs1iWnghOaib"></div>
                     <div class="modal-actions" data-page-node-id="nZsemj4q5MgnVK1tdhg9GC">

@@ -42,6 +42,18 @@ function toggleSubscription() {
     }
 }
 
+function toggleXuiSub() {
+    const section = document.getElementById('xui-sub-section');
+    const arrow = document.getElementById('xui-arrow');
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        arrow.style.transform = 'rotate(180deg)';
+    } else {
+        section.style.display = 'none';
+        arrow.style.transform = 'rotate(0deg)';
+    }
+}
+
 function toggleConfig() {
     const section = document.getElementById('config-section');
     const arrow = document.getElementById('config-arrow');
@@ -59,15 +71,16 @@ function toggleConfig() {
 function convert(aiOverride) {
     const links = document.getElementById('vless-input').value.trim();
     const subscriptions = document.getElementById('subscription-input') ? document.getElementById('subscription-input').value.trim() : '';
+    const xuiSub = document.getElementById('xui-sub-input') ? document.getElementById('xui-sub-input').value.trim() : '';
     const config = getConfig();
     const configName = document.getElementById('cfg-name') ? document.getElementById('cfg-name').value.trim() : '';
 
-    if (!links && !subscriptions) {
-        showStatus('请输入代理链接或订阅地址', 'error');
+    if (!links && !subscriptions && !xuiSub) {
+        showStatus('请输入代理链接、订阅地址或 3x-ui 订阅链接', 'error');
         return;
     }
 
-    const payload = { links, subscriptions, config, config_name: configName };
+    const payload = { links, subscriptions, xui_sub_url: xuiSub, config, config_name: configName };
     // When the picker supplied explicit nodes, force AI routing on with them
     if (aiOverride) {
         payload.ai_routing = true;
@@ -285,6 +298,8 @@ function clearAll() {
     document.getElementById('vless-input').value = '';
     const subInput = document.getElementById('subscription-input');
     if (subInput) subInput.value = '';
+    const xuiInput = document.getElementById('xui-sub-input');
+    if (xuiInput) xuiInput.value = '';
     document.getElementById('result-section').style.display = 'none';
     document.getElementById('error-section').style.display = 'none';
     document.getElementById('status-bar').style.display = 'none';

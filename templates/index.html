@@ -1,183 +1,195 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-page-node-id="X48Ho3IQ8uE9D3WjDTYEJW">
+<head data-page-node-id="Zrws3H3COAP4NQ3Uyn8FFQ">
+    <meta charset="UTF-8" data-page-node-id="MAD03gNbCQeRWe9a35VB5V">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="hAkSgIXF5yC5e5X80A7Vxt">
     <title>VLESS to Clash YAML 转换工具</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v={{ version }}" data-page-node-id="tt6C64AFMFeHFNIpacQUpe">
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>VLESS → Clash Meta YAML</h1>
-            <p class="subtitle">批量将 VLESS 链接转换为 Mihomo Party / Clash Meta 可导入的 YAML 配置</p>
-            <span id="version-badge" class="version-badge">v—</span>
+<body data-page-node-id="O545AsaNwLHv01OdGoLgbY">
+    <div class="container" data-page-node-id="AHcboifU8qSpjosN2I4Ugi">
+        <header data-page-node-id="mwoyXSquLuOTeiE0No6TDB">
+            <h1 data-page-node-id="I4uJRidZNAkMNeSipGfUWm">VLESS → Clash Meta YAML</h1>
+            <p class="subtitle" data-page-node-id="fd7m3EqiS7GtwHFxeStp5u">批量将 VLESS 链接转换为 Mihomo Party / Clash Meta 可导入的 YAML 配置</p>
+            <span id="version-badge" class="version-badge" data-page-node-id="BXAAwwtTCFVgYoJrb7ZIZZ">v—</span>
         </header>
 
-        <div class="card">
-            <div class="card-header">
-                <span class="card-icon">📋</span>
-                <h2>输入代理链接</h2>
+        <div class="card" data-page-node-id="NUEp9skmeov5WwMyC3Qzfp">
+            <div class="card-header" data-page-node-id="6dtwdzyrLxtAgH9bqShD7A">
+                <span class="card-icon" data-page-node-id="X8qZwFF8wcbcOAORAIQmeF">📋</span>
+                <h2 data-page-node-id="qbFQ7Npq75lLqVOIGDfv7S">输入代理链接</h2>
             </div>
             <textarea id="vless-input" placeholder="每行粘贴一个代理链接，支持 VLESS / VMess / SS / SSR / Trojan，支持批量导入&#10;&#10;示例：&#10;vless://uuid@server:port?type=tcp&security=reality&sni=apple.com&pbk=xxx&sid=xxx&fp=chrome#节点名称&#10;vmess://eyJ2IjoiMiIsInBzIjoi5Y+R6YeN5p2lIiwiYWRkIjoiMS4yLjMuNCIsInBvcnQiOiI0NDMiLCJpZCI6Inh4eCIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInBhdGgiOiIvIn0=&#10;trojan://password@server:443?sni=example.com#节点名称"></textarea>
         </div>
 
-        <div class="card card-name-config">
-            <div class="card-header">
-                <span class="card-icon">🏷️</span>
-                <h2>配置名称</h2>
-                <span class="name-hint">Clash 导入后显示的名称</span>
+        <div class="card card-name-config" data-page-node-id="8pAlEt73AWLp4EkOhg4SU9">
+            <div class="card-header" data-page-node-id="MPFhionduxYpreNj3EOrid">
+                <span class="card-icon" data-page-node-id="VGfCQkWBVTvjSAVrFX4CNk">🏷️</span>
+                <h2 data-page-node-id="8PV1z7fDU9mSEVhb8E3Osk">配置名称</h2>
+                <span class="name-hint" data-page-node-id="jAnoHz2mr3x8gP2N0WGqXw">Clash 导入后显示的名称</span>
             </div>
-            <div class="name-config-row">
-                <input type="text" id="cfg-name" class="name-input" placeholder="留空自动生成：单链接用节点名，多链接用随机 Token">
+            <div class="name-config-row" data-page-node-id="o2Od3DmmYHBoft9FBqvohD">
+                <input type="text" id="cfg-name" class="name-input" placeholder="留空自动生成：单链接用节点名，多链接用随机 Token" data-page-node-id="zTZf8cdAQlAFUcRAXrIke4">
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header collapsible" onclick="toggleSubscription()">
-                <span class="card-icon">🔗</span>
-                <h2>订阅地址（可选）</h2>
-                <span class="toggle-arrow" id="sub-arrow">▼</span>
+        <div class="card" data-page-node-id="72ZJUK73XiNVsOEIocQeX7">
+            <div class="card-header collapsible" onclick="toggleSubscription()" data-page-node-id="pidwtceU8eMJJwd4T2xKOB">
+                <span class="card-icon" data-page-node-id="gGfIMPEtwvGJXjqzJljekg">🔗</span>
+                <h2 data-page-node-id="hv7wAhGNZsJvAXTVdq2L3c">订阅地址（可选）</h2>
+                <span class="toggle-arrow" id="sub-arrow" data-page-node-id="RmFznAodXbVGffZJGPlINd">▼</span>
             </div>
-            <div id="subscription-section" class="collapsible-content" style="display:none;">
+            <div id="subscription-section" class="collapsible-content" style="display:none;" data-page-node-id="2iKI9oDKBgKtGn2xCdFdOZ">
                 <textarea id="subscription-input" placeholder="每行一个订阅地址，支持 Base64 编码的订阅&#10;&#10;示例：&#10;https://example.com/sub1&#10;https://example.com/sub2"></textarea>
             </div>
         </div>
 
         <div class="card">
-            <div class="card-header collapsible" onclick="toggleConfig()">
-                <span class="card-icon">⚙️</span>
-                <h2>配置选项（可选）</h2>
-                <span class="toggle-arrow" id="config-arrow">▼</span>
+            <div class="card-header collapsible" onclick="toggleXuiSub()">
+                <span class="card-icon">🖥️</span>
+                <h2>3x-ui 订阅（可选，自动同步）</h2>
+                <span class="toggle-arrow" id="xui-arrow">▼</span>
             </div>
-            <div id="config-section" class="collapsible-content" style="display:none;">
-                <div class="config-grid">
-                    <div class="config-item">
-                        <label>混合端口</label>
-                        <input type="number" id="cfg-port" value="7890">
+            <div id="xui-sub-section" class="collapsible-content" style="display:none;">
+                <textarea id="xui-sub-input" rows="4" placeholder="每行一个 3x-ui 面板的订阅链接，不同 VPS 各填一行，可聚合多台服务器&#10;链接含 /clash/ 会自动改写为 /sub/&#10;同名节点会自动合并成一个可选组（组内切换不同 VPS）&#10;&#10;示例：&#10;http://185.115.207.27:2096/sub/xxxxxxxx&#10;http://38.47.108.240:2096/sub/xxxxxxxx"></textarea>
+                <small style="color:#888;display:block;margin-top:6px;">填写后转换/刷新会自动拉取 3x-ui 中的最新节点；流量统计按各面板的对应客户端分别合计。</small>
+            </div>
+        </div>
+
+        <div class="card" data-page-node-id="IISW75biR4g6MHRnDAUjbh">
+            <div class="card-header collapsible" onclick="toggleConfig()" data-page-node-id="vytqxGD9FsufOHZ3ryyRKw">
+                <span class="card-icon" data-page-node-id="jrSZgaYcQbKxZAmr29CCR7">⚙️</span>
+                <h2 data-page-node-id="H837wxCIsV33unTAbaI2nl">配置选项（可选）</h2>
+                <span class="toggle-arrow" id="config-arrow" data-page-node-id="D2ntGyNUd338YvnGpy6KwU">▼</span>
+            </div>
+            <div id="config-section" class="collapsible-content" style="display:none;" data-page-node-id="G8HKfFHOIFPKtK5YfJKhau">
+                <div class="config-grid" data-page-node-id="OlfOxWauEFfdImh47Rt849">
+                    <div class="config-item" data-page-node-id="OFT5rh2X7ukPDtDv2akF7I">
+                        <label data-page-node-id="s0tOGVoPHG8o2Kh8xDybft">混合端口</label>
+                        <input type="number" id="cfg-port" value="7890" data-page-node-id="MJHI4WoLCtzjlYO2l00gFv">
                     </div>
-                    <div class="config-item">
-                        <label>允许局域网</label>
-                        <select id="cfg-allow-lan">
-                            <option value="true" selected>是</option>
-                            <option value="false">否</option>
+                    <div class="config-item" data-page-node-id="guyNlwiMLOMznI1uwPityw">
+                        <label data-page-node-id="MfAbUFKB0rVt0UysKQLSLo">允许局域网</label>
+                        <select id="cfg-allow-lan" data-page-node-id="6SovfmXAmqdW12Gxg3XGPB">
+                            <option value="true" selected data-page-node-id="GurgfGTUblA7EV1AtdvS8O">是</option>
+                            <option value="false" data-page-node-id="v9YsBWma63sh55c2nluYrl">否</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>运行模式</label>
-                        <select id="cfg-mode">
-                            <option value="rule" selected>rule</option>
-                            <option value="global">global</option>
-                            <option value="direct">direct</option>
+                    <div class="config-item" data-page-node-id="Avi4UTpw65NgisCmIVIF6z">
+                        <label data-page-node-id="cbhyanm3BAP9Dp9peChLGy">运行模式</label>
+                        <select id="cfg-mode" data-page-node-id="pdKEUQrz7oB7yJVkKZpTzc">
+                            <option value="rule" selected data-page-node-id="vwtBeH2MGNyXzszaSrSmXl">rule</option>
+                            <option value="global" data-page-node-id="Gm4kVeDEFWCnVjGwxWn6eS">global</option>
+                            <option value="direct" data-page-node-id="BDkuT7aCCEnTgMrr640kP5">direct</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>日志级别</label>
-                        <select id="cfg-log-level">
-                            <option value="info" selected>info</option>
-                            <option value="debug">debug</option>
-                            <option value="warning">warning</option>
-                            <option value="error">error</option>
-                            <option value="silent">silent</option>
+                    <div class="config-item" data-page-node-id="0qGHRLDvEB88slxuOu3InJ">
+                        <label data-page-node-id="RVdyoYivN8CphXavbIFEqH">日志级别</label>
+                        <select id="cfg-log-level" data-page-node-id="EeYl4jOyIeFQFvc026AWpJ">
+                            <option value="info" selected data-page-node-id="DGjRUMMMCzgwY3Jiij7I9o">info</option>
+                            <option value="debug" data-page-node-id="LVKi51GIDd88DXgV9uV5C3">debug</option>
+                            <option value="warning" data-page-node-id="jaElriFCg0cDaW9ubU3oXY">warning</option>
+                            <option value="error" data-page-node-id="m8L9dG579URWAQXyW0wHIM">error</option>
+                            <option value="silent" data-page-node-id="kkDSTBiGv9jibyCjTKqU72">silent</option>
                         </select>
                     </div>
-                    <div class="config-item">
-                        <label>策略组名称</label>
-                        <input type="text" id="cfg-group-name" value="节点选择">
+                    <div class="config-item" data-page-node-id="PBGQ8xRXhd03zFyvbuj4ZH">
+                        <label data-page-node-id="dYKdtbphOeuK5cnIWkDVcR">策略组名称</label>
+                        <input type="text" id="cfg-group-name" value="节点选择" data-page-node-id="if2vz83NegmGBjQeXRtzTZ">
                     </div>
-                    <div class="config-item">
-                        <label>分流规则</label>
-                        <select id="cfg-rules-mode">
-                            <option value="basic" selected>基础（内置国内直连）</option>
-                            <option value="remote">完整（远程 Loyalsoldier）</option>
-                            <option value="none">无规则（等同于全局代理）</option>
+                    <div class="config-item" data-page-node-id="9DSaqGLG9Jztltef2eL9OB">
+                        <label data-page-node-id="007Vre3Y0Ka1vG2MtTBhDn">分流规则</label>
+                        <select id="cfg-rules-mode" data-page-node-id="ezBtL5WHlOuyBDnCoykDFD">
+                            <option value="basic" selected data-page-node-id="tVcCBpeay3PYVQal8EP2Q0">基础（内置国内直连）</option>
+                            <option value="remote" data-page-node-id="MG8urmPcjp3QnEx635VTHb">完整（远程 Loyalsoldier）</option>
+                            <option value="none" data-page-node-id="Cjem3cNEShP9VNGAHvwmPG">无规则（等同于全局代理）</option>
                         </select>
                     </div>
-                    <div class="config-item config-ai">
-                        <label>AI 智能分流</label>
-                        <select id="cfg-ai-routing">
-                            <option value="off" selected>关闭</option>
-                            <option value="on">开启（国外 AI → 日本，其余 → 香港）</option>
+                    <div class="config-item config-ai" data-page-node-id="RiFvJvvgmnIt8CCBsZ625k">
+                        <label data-page-node-id="RriIlehX75ZAOG1S3TW5dH">AI 智能分流</label>
+                        <select id="cfg-ai-routing" data-page-node-id="abajFjTvMC1MqtLunqRz2B">
+                            <option value="off" selected data-page-node-id="GvDl3CtHgawuJE6hS8gXDK">关闭</option>
+                            <option value="on" data-page-node-id="FejaRWKM8ywYZ0foAKupZ5">开启（国外 AI → 日本，其余 → 香港）</option>
                         </select>
-                        <span class="name-hint">无法自动判断日本/香港节点时，会在下方让你手动指定</span>
+                        <span class="name-hint" data-page-node-id="twfNL4DujfTqACLCGFn55S">无法自动判断日本/香港节点时，会在下方让你手动指定</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="actions">
-            <button id="convert-btn" class="btn btn-primary" onclick="convert()">
-                <span class="btn-icon">⚡</span> 一键转换
+        <div class="actions" data-page-node-id="ZWTvKqnaFJodD8ppkrEkSd">
+            <button id="convert-btn" class="btn btn-primary" onclick="convert()" data-page-node-id="oNhu0RcfTdJ1RkppcuRK8E">
+                <span class="btn-icon" data-page-node-id="ASUqhxSytlzCzhTTUY0PCr">⚡</span> 一键转换
             </button>
-            <button class="btn btn-secondary" onclick="loadExample()">
-                <span class="btn-icon">📝</span> 加载示例
+            <button class="btn btn-secondary" onclick="loadExample()" data-page-node-id="DPxKpd1xnv7DYVUqsDwgTK">
+                <span class="btn-icon" data-page-node-id="5qbR0Q0ZrBUbnF8KngVWPx">📝</span> 加载示例
             </button>
-            <button class="btn btn-secondary" onclick="clearAll()">
-                <span class="btn-icon">🗑</span> 清空
+            <button class="btn btn-secondary" onclick="clearAll()" data-page-node-id="HrYz4woYW6XsTka7GRsoMn">
+                <span class="btn-icon" data-page-node-id="wNLNMdLeYfPbFQzAF3zxyE">🗑</span> 清空
             </button>
         </div>
 
-        <div id="status-bar" class="status-bar" style="display:none;"></div>
+        <div id="status-bar" class="status-bar" style="display:none;" data-page-node-id="7nz9MoI0AHmQEn6eXzCLxR"></div>
 
-        <div id="result-section" style="display:none;">
-            <div class="card result-card">
-                <div class="card-header">
-                    <span class="card-icon">📄</span>
-                    <h2>转换结果</h2>
+        <div id="result-section" style="display:none;" data-page-node-id="FS0iOfbQLVUo4dWswZnZDa">
+            <div class="card result-card" data-page-node-id="IJzAHaXzyWjod3MXF3DdgY">
+                <div class="card-header" data-page-node-id="sYFE7NXQVOMZvFwo5xuhS1">
+                    <span class="card-icon" data-page-node-id="CXkU8OlBNyyLOREDUhCA3Z">📄</span>
+                    <h2 data-page-node-id="w3DJoja2k9ykpQBO79FC5w">转换结果</h2>
                 </div>
-                <div id="proxy-summary" class="proxy-summary"></div>
-                <div id="download-link-section" class="download-link-section" style="display:none;">
-                    <div class="download-link-box">
-                        <div class="download-link-info">
-                            <span class="file-badge" id="file-badge">token</span>
-                            <input type="text" id="download-url-input" class="url-input" readonly>
+                <div id="proxy-summary" class="proxy-summary" data-page-node-id="8ojLkPRFhzHl0AMZylRJO5"></div>
+                <div id="download-link-section" class="download-link-section" style="display:none;" data-page-node-id="m6pFF0weQ5yWA7OKNkupxZ">
+                    <div class="download-link-box" data-page-node-id="rTwfwc1llliVz1SIpEEnDG">
+                        <div class="download-link-info" data-page-node-id="bAYXBBR6fRoCVdxX9aiglR">
+                            <span class="file-badge" id="file-badge" data-page-node-id="SYPoLAPoxmCoRBRJ95yYVh">token</span>
+                            <input type="text" id="download-url-input" class="url-input" readonly data-page-node-id="6ANKqulSHkD7oCbNQkUyuu">
                         </div>
-                        <div class="download-link-actions">
-                            <button class="btn btn-small" onclick="copyLink()">
-                                <span class="btn-icon">🔗</span> 复制链接
+                        <div class="download-link-actions" data-page-node-id="zwbitlWmsWfQVZZFHxbQwf">
+                            <button class="btn btn-small" onclick="copyLink()" data-page-node-id="B0cAKnhtOjF3ZCwIpUZqnC">
+                                <span class="btn-icon" data-page-node-id="gKHYf6o38yycUZBuRo4yrD">🔗</span> 复制链接
                             </button>
-                            <a id="download-anchor" class="btn btn-small btn-download" href="#" download>
-                                <span class="btn-icon">⬇</span> 下载文件
+                            <a id="download-anchor" class="btn btn-small btn-download" href="#" download data-page-node-id="CWXEmNudvIZ6BsSqIP4vaF">
+                                <span class="btn-icon" data-page-node-id="esrxCOEnIjfC1RfBvE3OHV">⬇</span> 下载文件
                             </a>
                         </div>
                     </div>
                 </div>
-                <div class="result-actions-inline">
-                    <button class="btn btn-small" onclick="copyResult()">
-                        <span class="btn-icon">📋</span> 复制配置
+                <div class="result-actions-inline" data-page-node-id="bCO9T0jllAhlx7YchEbAvB">
+                    <button class="btn btn-small" onclick="copyResult()" data-page-node-id="yWewen9KJ66zCsSqftYsFN">
+                        <span class="btn-icon" data-page-node-id="EUSMrLiE15aXmCa0mwa9yQ">📋</span> 复制配置
                     </button>
                 </div>
-                <pre id="yaml-output" class="yaml-output"></pre>
+                <pre id="yaml-output" class="yaml-output" data-page-node-id="wgemcl4OdrhOxpCiJx5k4N"></pre>
             </div>
         </div>
 
-        <div id="error-section" style="display:none;">
-            <div class="card error-card">
-                <div class="card-header">
-                    <span class="card-icon">⚠️</span>
-                    <h2>错误信息</h2>
+        <div id="error-section" style="display:none;" data-page-node-id="zomSvSeEgUAunvoDGwz3wi">
+            <div class="card error-card" data-page-node-id="6gxXwwrdkZX6knY8DdPAEe">
+                <div class="card-header" data-page-node-id="QdRwrhoLUEyHZmyl7bVfE9">
+                    <span class="card-icon" data-page-node-id="Oi4rdqAnTrMPmjHokqg5uA">⚠️</span>
+                    <h2 data-page-node-id="pvkTBNQoo24MXfVwQw8arH">错误信息</h2>
                 </div>
-                <div id="error-list" class="error-list"></div>
+                <div id="error-list" class="error-list" data-page-node-id="5Oe5POPQqCc1Xq5PfYgCNO"></div>
             </div>
         </div>
 
-        <div id="ai-picker" class="card ai-picker" style="display:none;">
-            <div class="card-header">
-                <span class="card-icon">🤖</span>
-                <h2>AI 分流：请指定节点</h2>
+        <div id="ai-picker" class="card ai-picker" style="display:none;" data-page-node-id="E7QxuBR1pUZz06sMePZwhd">
+            <div class="card-header" data-page-node-id="SBmHqbTPW5JiC97JVAl7SY">
+                <span class="card-icon" data-page-node-id="nCwOcMcMWapemr4HWZRHDB">🤖</span>
+                <h2 data-page-node-id="dkHPSPbouAGXeLgj1WfUpc">AI 分流：请指定节点</h2>
             </div>
-            <p class="ai-picker-desc">无法自动判断日本 / 香港节点，请手动选择（也可都选同一节点）：</p>
-            <div class="ai-picker-row">
-                <label>日本节点（国外 AI 流量走这里）</label>
-                <select id="ai-japan-select"></select>
+            <p class="ai-picker-desc" data-page-node-id="yQ6SCVoDCiHjUtxfDZno5Y">无法自动判断日本 / 香港节点，请手动选择（也可都选同一节点）：</p>
+            <div class="ai-picker-row" data-page-node-id="TGkPsrCPfJyldOU4mGyEr4">
+                <label data-page-node-id="cPNBRO4voBc9IbmRPBYBZE">日本节点（国外 AI 流量走这里）</label>
+                <select id="ai-japan-select" data-page-node-id="8Cd7NZjv8rKdGqDexNdCnV"></select>
             </div>
-            <div class="ai-picker-row">
-                <label>香港节点（其余流量走这里）</label>
-                <select id="ai-hk-select"></select>
+            <div class="ai-picker-row" data-page-node-id="vLTDdysPRdIjlCrEcTbfC4">
+                <label data-page-node-id="wBKj9p7jzgHEBLaPJA6sqM">香港节点（其余流量走这里）</label>
+                <select id="ai-hk-select" data-page-node-id="2El9MRVqxwxWxT9747jfYv"></select>
             </div>
-            <div class="ai-picker-actions">
-                <button class="btn btn-primary" onclick="confirmAiRouting()">确认生成</button>
-                <button class="btn btn-secondary" onclick="cancelAiRouting()">取消</button>
+            <div class="ai-picker-actions" data-page-node-id="HFR23jRfcvsgRjY0YAmFol">
+                <button class="btn btn-primary" onclick="confirmAiRouting()" data-page-node-id="IY7M8pC4OVhKMFN7TJJfeb">确认生成</button>
+                <button class="btn btn-secondary" onclick="cancelAiRouting()" data-page-node-id="rLkgNa6a8JCU4uihGxp4s8">取消</button>
             </div>
         </div>
     </div>

@@ -140,6 +140,7 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-rules-mode', cfg.rules_mode || 'basic');
             setGlobalConfigField('gc-group-name', cfg.group_name || '节点选择');
             setGlobalConfigField('gc-default-to-auto', cfg.default_to_auto ? 'true' : 'false');
+            setGlobalConfigField('gc-merge-same-name', cfg.merge_same_name === false ? 'false' : 'true');
             setGlobalConfigField('gc-port', cfg.port != null ? cfg.port : 7890);
             setGlobalConfigField('gc-allow-lan', cfg.allow_lan ? 'true' : 'false');
             setGlobalConfigField('gc-log-level', cfg.log_level || 'info');
@@ -167,6 +168,7 @@ function saveGlobalConfig(applyAll) {
         rules_mode: document.getElementById('gc-rules-mode').value,
         group_name: document.getElementById('gc-group-name').value || '节点选择',
         default_to_auto: document.getElementById('gc-default-to-auto').value === 'true',
+        merge_same_name: document.getElementById('gc-merge-same-name') ? document.getElementById('gc-merge-same-name').value === 'true' : true,
         port: parseInt(document.getElementById('gc-port').value) || 7890,
         allow_lan: document.getElementById('gc-allow-lan').value === 'true',
         log_level: document.getElementById('gc-log-level').value,

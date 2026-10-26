@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.41"
+APP_VERSION = "v1.6.42"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -102,6 +102,11 @@ DEFAULT_GLOBAL_CONFIG = {
     # Put 「自动选择」(url-test) first in the main select group so a freshly
     # imported subscription auto-picks the fastest node instead of DIRECT.
     "default_to_auto": True,
+    # Same-name merge: when nodes from DIFFERENT sources share one display name
+    # (e.g. the same client alias on two VPS 3x-ui panels), emit ONE select
+    # group named after the node containing every variant (香港-超拽 -> 香港-超拽·1 / ·2),
+    # instead of listing flat `name` / `name_1` duplicates.
+    "merge_same_name": True,
     # Health-check used by fallback proxy groups (node failover)
     "hc_url": "https://cp.cloudflare.com/digest204",
     "hc_interval": 300,
@@ -143,6 +148,7 @@ def save_global_config(cfg):
     merged["ai_routing"] = bool(merged["ai_routing"])
     merged["allow_lan"] = bool(merged["allow_lan"])
     merged["default_to_auto"] = bool(merged.get("default_to_auto", True))
+    merged["merge_same_name"] = bool(merged.get("merge_same_name", True))
     merged["port"] = int(merged["port"] or 7890)
     merged["hc_interval"] = int(merged["hc_interval"] or 300)
     merged["hc_tolerance"] = int(merged["hc_tolerance"] or 50)
@@ -172,6 +178,7 @@ def global_basic_config(gcfg):
         "ai_preference": gcfg["ai_preference"],
         # .get() guards configs written by older versions (key may be absent)
         "default_to_auto": gcfg.get("default_to_auto", True),
+        "merge_same_name": gcfg.get("merge_same_name", True),
         "hc_url": gcfg["hc_url"],
         "hc_interval": gcfg["hc_interval"],
         "hc_tolerance": gcfg["hc_tolerance"],
@@ -1308,6 +1315,47 @@ def generate_clash_yaml(proxies, config=None):
     ai_japan = config.get("ai_japan", "") or ""
     ai_hongkong = config.get("ai_hongkong", "") or ""
 
+    # Same-name merge (v1.6.42): duplicate display names (same client alias on
+    # two VPS 3x-ui panels) are folded into ONE select group named after the
+    # node, instead of flat `name` / `name_1` duplicates. Off = legacy behavior.
+    merge_same_name = bool(config.get("merge_same_name", True))
+    merge_groups = config.get("merge_groups") or {}
+    if not merge_same_name:
+        merge_groups = {}
+
+    # Rename variants `base / base_1 / base_2 ...` to `base·1 / base·2 ...` so
+    # the merged group (named `base`) never collides with a proxy name — mihomo
+    # forbids a proxy and a group sharing the same name. Nested groups (a base
+    # that is itself a variant of an earlier group) are absorbed and skipped.
+    old_names = [p["name"] for p in proxies]
+    renumber = {}
+    effective_groups = []  # (base, [old variant names]) actually emitted
+    for base, variants in merge_groups.items():
+        if base in renumber:
+            continue
+        members = []
+        idx = 0
+        for old in variants:
+            if old in renumber:
+                continue
+            idx += 1
+            renumber[old] = f"{base}·{idx}"
+            members.append(old)
+        effective_groups.append((base, members))
+    group_of = {}  # old variant name -> merged group name (for member refs)
+    for base, members in effective_groups:
+        for old in members:
+            group_of[old] = base
+    if renumber:
+        for p in proxies:
+            new_name = renumber.get(p["name"])
+            if new_name:
+                p["name"] = new_name
+
+    def _member(old_name):
+        """Group member for a node: the merged group when it was folded."""
+        return group_of.get(old_name, old_name)
+
     # AI routing needs rule mode to have any effect
     mode = "rule" if ai_routing else config.get("mode", "rule")
 
@@ -1398,8 +1446,13 @@ def generate_clash_yaml(proxies, config=None):
     if config.get("default_to_auto", True):
         # 默认选中「自动选择」分组（url-test 自动挑最快节点），而非固定节点或直连
         lines.append(f'      - "自动选择"')
-    for p in proxies:
-        lines.append(f'      - "{p["name"]}"')
+    _emitted = set()
+    for old in old_names:
+        m = _member(old)
+        if m in _emitted:
+            continue
+        _emitted.add(m)
+        lines.append(f'      - "{m}"')
     lines.append(f'      - DIRECT')
     lines.append("")
 
@@ -1421,12 +1474,13 @@ def generate_clash_yaml(proxies, config=None):
         def _build_smart_members(first, second):
             members = []
             if first:
-                members.append(first)
+                members.append(_member(first))
             if second:
-                members.append(second)
-            for p in proxies:
-                if p["name"] not in members:
-                    members.append(p["name"])
+                members.append(_member(second))
+            for old in old_names:
+                m = _member(old)
+                if m not in members:
+                    members.append(m)
             # Fallback to main select group so manual node selection still works
             # as ultimate fallback when all smart-routing nodes are down.
             members.append(group_name)
@@ -1481,14 +1535,34 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f'  - name: "自动选择"')
     lines.append(f'    type: url-test')
     lines.append(f'    proxies:')
-    for p in proxies:
-        lines.append(f'      - "{p["name"]}"')
+    _emitted = set()
+    for old in old_names:
+        m = _member(old)
+        if m in _emitted:
+            continue
+        _emitted.add(m)
+        lines.append(f'      - "{m}"')
     lines.append(f'      - DIRECT')
     lines.append(f'    url: {HC_URL}')
     lines.append(f'    interval: {HC_INTERVAL}')
     lines.append(f'    tolerance: {HC_TOLERANCE}')
     lines.append(f'    timeout: {HC_TIMEOUT}')
     lines.append("")
+
+    # Merged same-name groups (v1.6.42): ONE select group per duplicated display
+    # name, aggregating the same client from multiple VPS panels — the user picks
+    # the name once and switches servers inside. Emitted AFTER 自动选择 so the
+    # proxy-groups index contract (groups[0]=主策略组, groups[1]=AI 组) required
+    # by apply_template_to_record stays intact.
+    for base, members in effective_groups:
+        lines.append(f'  - name: "{base}"')
+        lines.append(f'    type: select')
+        lines.append(f'    proxies:')
+        for _old in members:
+            lines.append(f'      - "{renumber[_old]}"')
+        lines.append("")
+    if effective_groups:
+        lines.append("")
 
     # Rules
     _emit_rules(lines, group_name, rules_mode, ai_routing, ai_japan, ai_hongkong)
@@ -1729,22 +1803,33 @@ def _normalize_xui_sub_url(url):
 def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     """Parse raw proxy links and subscription URLs into a list of proxies.
 
-    Shared by /api/convert, /api/admin/records/<id>/edit, and /refresh.
-    Returns (proxies, errors).
+    Shared by /api/convert, /api/admin/records/<id>/edit, /refresh,
+    /refresh-all and regenerate_record_yaml.
+    Returns (proxies, errors, merge_groups).
 
-    If `xui_sub_url` is provided (a 3x-ui subscription link), it is used as the
-    sole source of node links — v2c auto-fetches whatever the user configured /
-    modified in 3x-ui, so manual re-pasting is no longer needed.
+    If `xui_sub_url` is provided (one 3x-ui subscription link per line), it is
+    used as the sole source of node links — MULTIPLE lines are supported, one
+    per VPS panel, so a single v2c token can aggregate clients from several
+    3x-ui servers. v2c auto-fetches whatever the user configured / modified in
+    3x-ui, so manual re-pasting is no longer needed.
+
+    `merge_groups` maps a display name to every duplicate variant produced by
+    collision-renaming, e.g. {"香港-超拽": ["香港-超拽", "香港-超拽_1"]}. Only
+    names that actually collided (>= 2 nodes) are included, so
+    generate_clash_yaml can fold them into one select group.
     """
     proxies = []
     errors = []
     seen_names = {}
+    dup_groups = {}
 
     def add_proxy(proxy):
         name = proxy["name"]
         if name in seen_names:
             seen_names[name] += 1
-            proxy["name"] = f"{name}_{seen_names[name]}"
+            new_name = f"{name}_{seen_names[name]}"
+            proxy["name"] = new_name
+            dup_groups.setdefault(name, [name]).append(new_name)
         else:
             seen_names[name] = 0
         proxies.append(proxy)
@@ -1760,6 +1845,7 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
             if not url.startswith("http://") and not url.startswith("https://"):
                 errors.append(f"无效 3x-ui 订阅地址: {url[:80]}")
                 continue
+            fetch_url = url
             try:
                 fetch_url = _normalize_xui_sub_url(url)
                 links = fetch_subscription(fetch_url)
@@ -1774,7 +1860,7 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
                         errors.append(f"3x-ui 节点解析失败: {link[:80]}")
             except Exception as e:
                 errors.append(f"3x-ui 订阅获取失败 ({fetch_url[:50]}): {str(e)}")
-        return proxies, errors
+        return proxies, errors, dup_groups
 
     if raw_links:
         for line in raw_links.splitlines():
@@ -1810,7 +1896,7 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
             except Exception as e:
                 errors.append(f"订阅获取失败 ({url[:50]}): {str(e)}")
 
-    return proxies, errors
+    return proxies, errors, dup_groups
 
 
 @app.route("/")
@@ -1965,7 +2051,7 @@ def convert():
         if key not in config or config.get(key) in (None, ""):
             config[key] = gcfg.get(key)
 
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -2014,6 +2100,7 @@ def convert():
     if ai_routing:
         config["ai_japan"] = ai_japan
         config["ai_hongkong"] = ai_hongkong
+    config["merge_groups"] = merge_groups
 
     yaml_content = generate_clash_yaml(proxies, config)
 
@@ -2055,6 +2142,7 @@ def convert():
         "ai_routing": ai_routing,
         "ai_japan": ai_japan,
         "ai_hongkong": ai_hongkong,
+        "merge_groups": merge_groups,
         "proxies": [{"name": p["name"], "server": p["server"], "port": p["port"]} for p in proxies],
     })
 
@@ -2498,7 +2586,7 @@ def admin_edit_record(record_id):
     filename = row["filename"]
 
     # Parse new links
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -2529,9 +2617,12 @@ def admin_edit_record(record_id):
                 ai_hongkong = ai_hongkong if ai_hongkong in proxy_names else ""
 
     # Generate new YAML with selected rules_mode + AI routing
+    gcfg = load_global_config()
     yaml_content = generate_clash_yaml(
         proxies,
-        {"rules_mode": rules_mode, "ai_routing": ai_routing, "ai_japan": ai_japan, "ai_hongkong": ai_hongkong}
+        {"rules_mode": rules_mode, "ai_routing": ai_routing, "ai_japan": ai_japan,
+         "ai_hongkong": ai_hongkong, "merge_groups": merge_groups,
+         "merge_same_name": gcfg.get("merge_same_name", True)}
     )
 
     # Overwrite the YAML file on disk (same filename, same token)
@@ -2606,7 +2697,7 @@ def admin_refresh_record(record_id):
         return jsonify({"error": "该记录没有原始链接数据，无法刷新"}), 400
 
     # Re-parse using stored links
-    proxies, errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
 
     if not proxies:
         error_msg = "重新解析失败，未找到有效节点"
@@ -2623,6 +2714,7 @@ def admin_refresh_record(record_id):
     single_cfg["ai_routing"] = ai_routing
     single_cfg["ai_japan"] = ai_japan
     single_cfg["ai_hongkong"] = ai_hongkong
+    single_cfg["merge_groups"] = merge_groups
     yaml_content = generate_clash_yaml(proxies, single_cfg)
 
     # Overwrite file on disk
@@ -2702,7 +2794,7 @@ def admin_refresh_all_records():
             if not raw_links and not sub_urls and not xui_sub_url:
                 skipped.append({"id": record_id, "error": "无原始链接数据"})
                 continue
-            proxies, _errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+            proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
             if not proxies:
                 skipped.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
@@ -2710,6 +2802,7 @@ def admin_refresh_all_records():
             # Apply the global config policy. AI node names are re-detected per
             # record (or kept from the stored assignment if still valid).
             cfg = dict(basic_cfg)
+            cfg["merge_groups"] = merge_groups
             cfg["ai_routing"] = False
             cfg["ai_japan"] = ""
             cfg["ai_hongkong"] = ""
@@ -3107,12 +3200,13 @@ def regenerate_record_yaml(record_id, gcfg=None):
         conn.close()
         return False, "无原始链接数据"
 
-    proxies, _errors = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
     if not proxies:
         conn.close()
         return False, "重新解析失败，无有效节点"
 
     cfg = dict(basic_cfg)
+    cfg["merge_groups"] = merge_groups
     cfg["ai_routing"] = False
     cfg["ai_japan"] = ""
     cfg["ai_hongkong"] = ""
@@ -3167,17 +3261,23 @@ def _auto_migrate_after_upgrade():
             return
 
         gcfg = load_global_config()
-        if not gcfg.get("default_to_auto", True):
-            # 自动选择 is off — nothing to migrate, but remember we checked.
-            with open(marker, "w", encoding="utf-8") as f:
-                f.write(datetime.datetime.now().isoformat() + "\n")
-            return
+        auto_on = bool(gcfg.get("default_to_auto", True))
+        merge_on = bool(gcfg.get("merge_same_name", True))
 
         conn = get_db()
         rows = conn.execute("SELECT id, yaml_content FROM conversion_records").fetchall()
         conn.close()
 
-        stale = [r["id"] for r in rows if "自动选择" not in (r["yaml_content"] or "")]
+        stale = []
+        for r in rows:
+            y = r["yaml_content"] or ""
+            if auto_on and "自动选择" not in y:
+                stale.append(r["id"])
+                continue
+            # v1.6.42: legacy duplicate names (`xxx_N` flat suffix) predate the
+            # merged same-name group layout — regenerate into merged groups.
+            if merge_on and re.search(r'^  - name: ".+_\d+"$', y, re.M):
+                stale.append(r["id"])
         for rid in stale:
             try:
                 regenerate_record_yaml(rid, gcfg)
