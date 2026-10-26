@@ -51,8 +51,24 @@
                 <span class="toggle-arrow" id="xui-arrow">▼</span>
             </div>
             <div id="xui-sub-section" class="collapsible-content" style="display:none;">
-                <textarea id="xui-sub-input" rows="4" placeholder="每行一个 3x-ui 面板的订阅链接，不同 VPS 各填一行，可聚合多台服务器&#10;链接含 /clash/ 会自动改写为 /sub/&#10;同名节点会自动合并成一个可选组（组内切换不同 VPS）&#10;&#10;示例：&#10;http://185.115.207.27:2096/sub/xxxxxxxx&#10;http://38.47.108.240:2096/sub/xxxxxxxx"></textarea>
+                <textarea id="xui-sub-input" rows="4" placeholder="每行一个 3x-ui 面板的订阅链接，不同 VPS 各填一行，可聚合多台服务器&#10;链接含 /clash/ 会自动改写为 /sub/&#10;同名节点会自动合并成一个可选组（组内切换不同 VPS）&#10;&#10;示例：&#10;http://185.115.207.27:2096/sub/xxxxxxxx&#10;http://140.235.37.110:2096/sub/xxxxxxxx"></textarea>
                 <small style="color:#888;display:block;margin-top:6px;">填写后转换/刷新会自动拉取 3x-ui 中的最新节点；流量统计按各面板的对应客户端分别合计。</small>
+                <div style="margin-top:8px;">
+                    <button class="btn btn-small" id="panel-clients-btn" onclick="loadPanelClients()">🧩 从面板读取客户端（自动发现）</button>
+                    <small style="color:#888;margin-left:8px;">读取总体配置里全部面板的客户端，勾选后自动填入并生成订阅（需管理员登录）</small>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-client-picker" class="card" style="display:none;">
+            <div class="card-header">
+                <span class="card-icon">🧩</span>
+                <h2>选择要聚合的客户端</h2>
+            </div>
+            <div id="panel-client-list" style="max-height:320px;overflow:auto;margin:0 12px;"></div>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="confirmPanelClients()">✅ 勾选完成，自动生成订阅</button>
+                <button class="btn btn-secondary" onclick="cancelPanelClients()">取消</button>
             </div>
         </div>
 

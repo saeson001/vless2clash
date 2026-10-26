@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.42"
+APP_VERSION = "v1.6.43"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1963,6 +1963,74 @@ def admin_global_config():
     return jsonify({"success": True, "config": saved})
 
 
+@app.route("/api/admin/panel-clients", methods=["POST"])
+def admin_panel_clients():
+    """Auto-discover every enabled client on ALL configured 3x-ui panels.
+
+    Reads vps_traffic_sources (panel URL + credentials) from the global
+    config, logs into each panel, lists inbounds and assembles each enabled
+    client's subscription link from the panel's own defaultSettings.subURI +
+    client subId. Feeds the main-page picker so N VPSes' clients can be pulled
+    and merged into ONE Clash subscription without manual URL copying.
+    """
+    if not is_admin_logged_in():
+        return jsonify({"error": "未授权"}), 401
+
+    from urllib.parse import urlparse as _uparse
+
+    gcfg = load_global_config()
+    sources = gcfg.get("vps_traffic_sources") or []
+    clients = []
+    errors = []
+    seen_sub_urls = set()
+    for src in sources:
+        url = (src.get("url") or "").strip().rstrip("/")
+        if not url:
+            continue
+        user = src.get("username", "")
+        pwd = src.get("password", "")
+        data = _fetch_panel_inbounds(url, user, pwd)
+        if not data:
+            errors.append("面板登录或读取失败: " + url)
+            continue
+        ds = _fetch_panel_default_settings(url, user, pwd) or {}
+        sub_uri = (ds.get("subURI") or "").strip()
+        if not sub_uri:
+            errors.append("面板未返回订阅地址(subURI): " + url)
+            continue
+        host = _uparse(url).hostname or url
+        for ib in (data.get("obj") or []):
+            s = _ib_settings(ib)
+            stats = {}
+            for st in (ib.get("clientStats") or []):
+                if isinstance(st, dict) and st.get("email"):
+                    stats[st["email"]] = st
+            for c in (s.get("clients") or []):
+                if not c.get("enable", True):
+                    continue
+                sid = (c.get("subId") or "").strip()
+                if not sid:
+                    continue
+                sub_url = sub_uri + sid
+                if sub_url in seen_sub_urls:
+                    continue
+                seen_sub_urls.add(sub_url)
+                st = stats.get(c.get("email") or "")
+                clients.append({
+                    "panel": url,
+                    "panel_host": host,
+                    "inbound_remark": ib.get("remark") or "",
+                    "email": c.get("email") or "",
+                    "sub_id": sid,
+                    "sub_url": sub_url,
+                    "total": c.get("totalGB") or 0,
+                    "expiry": c.get("expiryTime") or 0,
+                    "up": (st or {}).get("up") or 0,
+                    "down": (st or {}).get("down") or 0,
+                })
+    return jsonify({"success": True, "clients": clients, "errors": errors})
+
+
 @app.route("/api/admin/global-template", methods=["GET"])
 def admin_global_template_get():
     """Return the raw global template text for the admin editor."""
@@ -3494,6 +3562,74 @@ def _ib_settings(ib):
         except Exception:
             return {}
     return s if isinstance(s, dict) else {}
+
+
+def _fetch_panel_default_settings(url, user, pwd):
+    """Log into a 3x-ui panel and return the defaultSettings payload dict.
+
+    The payload's `subURI` is the panel's own authoritative subscription base
+    (e.g. http://IP:2096/sub/ — built from the request host + the panel's
+    subPort), so client subscription links can be assembled as subURI + subId
+    without hard-coding ports. Cached like _fetch_panel_inbounds.
+    """
+    import json as _json
+    import time as _time
+    import urllib.request as _urllib_req
+    key = ("defaults", url, user, pwd)
+    now = _time.time()
+    hit = _PANEL_CACHE.get(key)
+    if hit is not None:
+        ts, payload = hit
+        ttl = _PANEL_CACHE_TTL if payload is not None else _PANEL_CACHE_TTL_FAIL
+        if now - ts < ttl:
+            return payload
+    data = None
+    try:
+        _jar = {}
+
+        def _save_cookies(resp):
+            for h in (resp.headers.get_all("Set-Cookie") or []):
+                try:
+                    kv = h.split(";", 1)[0]
+                    k, v = kv.split("=", 1)
+                    _jar[k.strip()] = v.strip()
+                except Exception:
+                    pass
+
+        def _cookie_header():
+            return "; ".join("%s=%s" % (k, v) for k, v in _jar.items())
+
+        req_csrf = _urllib_req.Request("%s/csrf-token" % url, method="GET")
+        resp_csrf = _urllib_req.urlopen(req_csrf, timeout=_PANEL_REQ_TIMEOUT)
+        _save_cookies(resp_csrf)
+        csrf_body = _json.loads(resp_csrf.read())
+        csrf_token = (csrf_body.get("obj") or "") if isinstance(csrf_body, dict) else ""
+        if not csrf_token:
+            return None
+        login_data = _json.dumps({"username": user, "password": pwd}).encode()
+        req_login = _urllib_req.Request("%s/login" % url, data=login_data, method="POST")
+        req_login.add_header("Content-Type", "application/json")
+        req_login.add_header("X-CSRF-Token", csrf_token)
+        if _cookie_header():
+            req_login.add_header("Cookie", _cookie_header())
+        resp_login = _urllib_req.urlopen(req_login, timeout=_PANEL_REQ_TIMEOUT)
+        _save_cookies(resp_login)
+        login_body = _json.loads(resp_login.read())
+        if not isinstance(login_body, dict) or not login_body.get("success"):
+            return None
+        req_ds = _urllib_req.Request("%s/panel/api/setting/defaultSettings" % url,
+                                     data=b"", method="POST")
+        req_ds.add_header("X-CSRF-Token", csrf_token)
+        if _cookie_header():
+            req_ds.add_header("Cookie", _cookie_header())
+        resp_ds = _urllib_req.urlopen(req_ds, timeout=_PANEL_REQ_TIMEOUT)
+        body = _json.loads(resp_ds.read())
+        if isinstance(body, dict) and body.get("success") and isinstance(body.get("obj"), dict):
+            data = body["obj"]
+    except Exception:
+        data = None
+    _PANEL_CACHE[key] = (now, data)
+    return data
 
 
 def _extract_yaml_proxy_targets(yaml_text):

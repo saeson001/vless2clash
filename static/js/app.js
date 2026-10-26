@@ -54,6 +54,89 @@ function toggleXuiSub() {
     }
 }
 
+// ===== Panel client auto-discovery (从面板读取客户端) =====
+
+function loadPanelClients() {
+    const btn = document.getElementById('panel-clients-btn');
+    if (btn) btn.disabled = true;
+    showStatus('正在从面板读取客户端...', 'loading');
+    fetch('/api/admin/panel-clients', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(r => {
+        if (r.status === 401) throw new Error('需要管理员登录：请先访问 /manage 登录');
+        return r.json();
+    })
+    .then(d => {
+        if (!d.success) throw new Error(d.error || '读取失败');
+        showPanelClientPicker(d.clients || [], d.errors || []);
+    })
+    .catch(err => showStatus(err.message, 'error'))
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function showPanelClientPicker(clients, errors) {
+    const box = document.getElementById('panel-client-list');
+    box.innerHTML = '';
+    if (!clients.length) {
+        showStatus('面板未返回任何启用客户端' + (errors.length ? '：' + errors.join('; ') : ''), 'error');
+        return;
+    }
+    const groups = {};
+    clients.forEach(c => {
+        const host = c.panel_host || c.panel || '未知面板';
+        (groups[host] = groups[host] || []).push(c);
+    });
+    Object.keys(groups).forEach(host => {
+        const h = document.createElement('div');
+        h.textContent = '面板: ' + host + '（' + groups[host].length + ' 个客户端）';
+        h.style.cssText = 'font-weight:bold;margin:10px 0 4px;color:#555;';
+        box.appendChild(h);
+        groups[host].forEach(c => {
+            const label = document.createElement('label');
+            label.style.cssText = 'display:flex;gap:8px;align-items:center;margin:3px 0;cursor:pointer;';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'panel-client-cb';
+            cb.value = c.sub_url;
+            cb.checked = true;
+            label.appendChild(cb);
+            const span = document.createElement('span');
+            let info = c.email || c.sub_id;
+            const used = (c.up || 0) + (c.down || 0);
+            if (c.total) {
+                info += '  [' + (used / 1073741824).toFixed(1) + 'G/' + (c.total / 1073741824).toFixed(0) + 'G]';
+            }
+            if (c.inbound_remark) info += '  (' + c.inbound_remark + ')';
+            span.textContent = info;
+            label.appendChild(span);
+            box.appendChild(label);
+        });
+    });
+    document.getElementById('panel-client-picker').style.display = 'block';
+    document.getElementById('panel-client-picker').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    let msg = '已读取 ' + clients.length + ' 个客户端（默认全选）';
+    if (errors.length) msg += '，部分面板失败: ' + errors.join('; ');
+    showStatus(msg, errors.length ? 'error' : 'success');
+}
+
+function confirmPanelClients() {
+    const urls = Array.from(document.querySelectorAll('.panel-client-cb:checked')).map(cb => cb.value);
+    if (!urls.length) {
+        showStatus('请至少勾选一个客户端', 'error');
+        return;
+    }
+    document.getElementById('xui-sub-input').value = urls.join('\n');
+    document.getElementById('panel-client-picker').style.display = 'none';
+    convert();
+}
+
+function cancelPanelClients() {
+    document.getElementById('panel-client-picker').style.display = 'none';
+}
+
 function toggleConfig() {
     const section = document.getElementById('config-section');
     const arrow = document.getElementById('config-arrow');
