@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.44"
+APP_VERSION = "v1.6.45"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -353,15 +353,19 @@ def apply_template_to_record(template_text, record_yaml):
 # Database
 # ---------------------------------------------------------------------------
 
-def get_db():
+def get_db(timeout=30):
     """Get a SQLite connection (row factory for dict-like access).
 
     timeout=30 raises the busy-wait from the 5s default: concurrent writers
     (auto-migrate thread, /d/<token> pull counters, admin refresh) now wait
     for each other instead of raising "database is locked" (which used to
     bubble up as an HTML 500 → client-side "not valid JSON").
+
+    v1.6.45: callers on the /d/<token> hot path pass timeout=1 — the counter
+    update and display-name lookup are cosmetic and must never stall the
+    subscription response when the DB is contended.
     """
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = sqlite3.connect(DB_PATH, timeout=timeout)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -2320,21 +2324,32 @@ def serve_by_token(token):
         abort(404)
 
     # Look up config_name from database for a friendly display name
+    # v1.6.45: 1 秒短超时 + 全部可跳过 — 计数器/显示名是装饰性的, 绝不能让
+    # /d/ 订阅响应被数据库锁拖住 30 秒(曾导致客户端导入订阅超时)。
     display_name = token
+    scope_base = None
     try:
-        conn = get_db()
-        cursor = conn.execute("SELECT config_name, xui_sub_url FROM conversion_records WHERE token = ?", (token,))
-        row = cursor.fetchone()
-        # Count this client pull as one subscription update
-        # (Clash Party / Mihomo importing or refreshing the subscription URL)
-        conn.execute(
-            "UPDATE conversion_records SET update_count = update_count + 1 WHERE token = ?",
-            (token,)
-        )
-        conn.commit()
-        conn.close()
-        if row and row["config_name"]:
-            display_name = row["config_name"]
+        conn = get_db(timeout=1)
+        try:
+            row = conn.execute(
+                "SELECT config_name, xui_sub_url FROM conversion_records WHERE token = ?",
+                (token,)).fetchone()
+            if row:
+                if row["config_name"]:
+                    display_name = row["config_name"]
+                if "xui_sub_url" in row.keys():
+                    scope_base = row["xui_sub_url"] or None
+            # Count this client pull as one subscription update
+            # (Clash Party / Mihomo importing or refreshing the subscription URL)
+            conn.execute(
+                "UPDATE conversion_records SET update_count = update_count + 1 WHERE token = ?",
+                (token,)
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # DB busy — the YAML itself is the whole point, serve it anyway
+        finally:
+            conn.close()
     except Exception:
         pass
 
@@ -2373,23 +2388,36 @@ def serve_by_token(token):
     # must degrade to "no traffic info" instead of breaking the subscription —
     # a Chinese inbound remark used to crash the gunicorn worker mid-response
     # (latin-1 header encode) and every client import failed with an empty reply.
-    try:
-        gcfg = load_global_config()
-        scope_base = row["xui_sub_url"] if (row and "xui_sub_url" in row.keys()) else None
-        traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
-        response.headers["Subscription-Userinfo"] = _ascii_header(
-            _format_subscription_userinfo(traffic))
-        # Diagnostics: per-node contribution, so you can tell at a glance which
-        # VPS/clients were counted (and which were skipped because no panel was
-        # configured for them).  Visible via: curl -I http://host/d/<token>
-        detail = _ascii_header(_format_traffic_detail(traffic))
-        if detail:
-            response.headers["X-Traffic-Detail"] = detail
-    except Exception:
+    #
+    # v1.6.45: 跑在限时 2 秒的后台线程里 — 不可达面板(如 140 超流量)的 4s 超时
+    # 曾把 /d/ 响应拖到 10-15 秒, 客户端直接判超时。拿不到就先发 YAML。
+    traffic_headers = {}
+
+    def _traffic_worker():
         try:
-            app.logger.exception("[vps-traffic] failed; serving YAML without traffic info")
+            gcfg = load_global_config()
+            traffic = _fetch_vps_traffic(gcfg, scope_base=scope_base, yaml_content=yaml_text)
+            if traffic:
+                traffic_headers["userinfo"] = _ascii_header(
+                    _format_subscription_userinfo(traffic))
+                traffic_headers["X-Traffic-Detail"] = _format_traffic_detail(traffic)
         except Exception:
-            pass
+            try:
+                app.logger.exception("[vps-traffic] failed; serving YAML without traffic info")
+            except Exception:
+                pass
+
+    try:
+        _t = threading.Thread(target=_traffic_worker, daemon=True)
+        _t.start()
+        _t.join(2.0)
+    except Exception:
+        pass
+    if "userinfo" in traffic_headers:
+        response.headers["Subscription-Userinfo"] = traffic_headers["userinfo"]
+        if "X-Traffic-Detail" in traffic_headers:
+            response.headers["X-Traffic-Detail"] = _ascii_header(traffic_headers["X-Traffic-Detail"])
+    else:
         try:
             response.headers["Subscription-Userinfo"] = "upload=0; download=0; total=0; expire=0"
         except Exception:
