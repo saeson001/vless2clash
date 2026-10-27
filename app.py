@@ -1420,34 +1420,11 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f"log-level: {log_level}")
     lines.append("")
 
-    # DNS — v1.6.44: 国外域名的解析走代理组(DoH over proxy), 解析结果干净,
-    # 彻底解决"国内 DNS 污染解析 -> 污染 IP 被当作拨号目标 -> youtube/google
-    # 超时"的问题。fake-ip 模式下连接仍按域名进隧道; sniffer 嗅探 SNI 兜底。
-    # OpenClash 忽略订阅的 dns: 并使用自己的 DNS 设置; 此块让 Clash Party /
-    # mihomo 单机也能直接工作。proxy-server-nameserver 用国内 DoH 解析节点
-    # 自身的域名(如有)。
+    # v1.6.45: 不放 DNS 段 — HTTP 代理模式下 mihomo 直接传域名到 VLESS 出站，
+    # 由服务端远程解析。放 DNS 模块会导致 mihomo 本地解析（国内 DoH 返回污染
+    # 结果），污染 IP 被当作拨号目标导致 youtube/google 超时。
+    # 如需 fake-ip(TUN 模式)，用户可在 Verge 中自行添加 DNS 配置。
     group = config.get("group_name", "节点选择")
-    lines.append("dns:")
-    lines.append("  enable: true")
-    lines.append("  enhanced-mode: fake-ip")
-    lines.append("  fake-ip-range: 198.18.0.1/16")
-    lines.append("  use-hosts: true")
-    lines.append("  proxy-server-nameserver:")
-    lines.append("    - https://doh.pub/dns-query")
-    lines.append("  nameserver:")
-    lines.append(f"    - 'https://dns.google/dns-query#{group}'")
-    lines.append(f"    - 'https://1.1.1.1/dns-query#{group}'")
-    lines.append("  fake-ip-filter:")
-    lines.append("    - '*.lan'")
-    lines.append("    - '*.local'")
-    lines.append("    - localhost")
-    lines.append("    - '*.localhost'")
-    lines.append("    - '*.example'")
-    lines.append("    - '*.invalid'")
-    lines.append("    - 'time.*.com'")
-    lines.append("    - '*.music.163.com'")
-    lines.append("    - '*.stun.*.*'")
-    lines.append("")
 
     # Sniffer (v1.6.44): 嗅探内层 TLS SNI / HTTP Host 并覆写目标地址。
     # 国内 DNS 对国外域名返回污染解析(如 youtube -> Facebook IP), 若把解析出的
