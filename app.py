@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.46"
+APP_VERSION = "v1.6.47"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1420,18 +1420,29 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f"log-level: {log_level}")
     lines.append("")
 
-    # v1.6.46: DNS 段恢复，但用正确姿势——fake-ip 模式下 mihomo 不真实解析国外
-    # 域名（返回 fake-ip，连接按域名进隧道由服务端远程解析），彻底免疫 DNS 污染。
-    # nameserver 仅用于真实解析场景（fake-ip-filter 内的域名），国内 DoH 足够。
-    # 之前"移除 DNS 段"的版本导致 mihomo 回退系统解析（污染），已回退此决定。
+    # v1.6.46: DNS 段——fake-ip 让连接按域名进隧道由服务端远程解析。
+    # 关键修复（v1.6.46b）：nameserver 的 DoH 带 #节点选择后缀 = DoH 查询
+    # 本身走代理出去，国外域名解析结果干净不被污染（此前国内 DoH 返回
+    # 污染 IP 被用于健康检查和拨号 → youtube/google 全挂、节点被判死）。
+    # default-nameserver 用纯 IP 国内 DNS 引导 DoH 域名解析。
+    group = config.get("group_name", "节点选择")
     lines.append("dns:")
     lines.append("  enable: true")
     lines.append("  enhanced-mode: fake-ip")
     lines.append("  fake-ip-range: 198.18.0.1/16")
     lines.append("  use-hosts: true")
-    lines.append("  nameserver:")
+    lines.append("  default-nameserver:")
+    lines.append("    - 223.5.5.5")
+    lines.append("    - 119.29.29.29")
+    lines.append("  proxy-server-nameserver:")
     lines.append("    - https://doh.pub/dns-query")
-    lines.append("    - https://dns.alidns.com/dns-query")
+    lines.append("  nameserver:")
+    lines.append(f"    - 'https://dns.google/dns-query#{group}'")
+    lines.append(f"    - 'https://1.1.1.1/dns-query#{group}'")
+    lines.append("  nameserver-policy:")
+    lines.append("    'geosite:cn':")
+    lines.append("      - https://doh.pub/dns-query")
+    lines.append("      - https://dns.alidns.com/dns-query")
     lines.append("  fake-ip-filter:")
     lines.append("    - '*.lan'")
     lines.append("    - '*.local'")
