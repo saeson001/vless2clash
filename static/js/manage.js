@@ -152,6 +152,8 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-auto-update-interval', cfg.auto_update_interval_hours != null ? cfg.auto_update_interval_hours : 6);
             var vpsSrc = cfg.vps_traffic_sources;
             setGlobalConfigField('gc-vps-traffic-sources', Array.isArray(vpsSrc) ? JSON.stringify(vpsSrc, null, 2) : '');
+            var srvOvr = cfg.server_overrides;
+            setGlobalConfigField('gc-server-overrides', Array.isArray(srvOvr) ? JSON.stringify(srvOvr, null, 2) : '');
         })
         .catch(function() {});
 }
@@ -180,6 +182,11 @@ function saveGlobalConfig(applyAll) {
         auto_update_interval_hours: parseInt(document.getElementById('gc-auto-update-interval').value) || 6,
         vps_traffic_sources: (function() {
             try { return JSON.parse(document.getElementById('gc-vps-traffic-sources').value || '[]'); } catch(e) { return []; }
+        })(),
+        server_overrides: (function() {
+            var el = document.getElementById('gc-server-overrides');
+            if (!el) return [];
+            try { return JSON.parse(el.value || '[]'); } catch(e) { return []; }
         })()
     };
     var saveBtn = document.getElementById('gc-save-btn');

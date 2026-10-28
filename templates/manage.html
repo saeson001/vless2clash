@@ -184,6 +184,11 @@
                         <textarea id="gc-vps-traffic-sources" rows="3" placeholder='[{"url":"http://IP:PORT","username":"admin","password":"xxx"}]' style="font-family:monospace;font-size:12px;width:100%;resize:vertical;"></textarea>
                         <small style="color:#888;">JSON 数组，每项为 3x-ui 面板的 URL+登录凭据。留空则不显示流量。客户端刷新订阅后生效。</small>
                     </div>
+                    <div class="config-item" style="grid-column:1/-1;">
+                        <label>节点地址覆写（把被封的源站 IP 指向 CDN 域名）</label>
+                        <textarea id="gc-server-overrides" rows="3" placeholder='[{"from_server":"185.115.207.27","from_port":8443,"to_server":"3x.820804.xyz","to_port":8443,"sni":"3x.820804.xyz","host":"3x.820804.xyz","skip_cert_verify":false}]' style="font-family:monospace;font-size:12px;width:100%;resize:vertical;"></textarea>
+                        <small style="color:#888;">JSON 数组，每条规则把匹配的节点地址改写成新地址。<code>from_port</code>/<code>to_port</code>/<code>sni</code>/<code>host</code>/<code>skip_cert_verify</code> 可选，首条命中即生效。留空则不改写。修改后需点「保存并应用到所有 Token」生效。</small>
+                    </div>
                 </div>
                 <div class="modal-actions" style="margin-top:12px;" data-page-node-id="kFltcpyW9EQA477jeqgdaZ">
                     <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)" data-page-node-id="AE7Fs7fUa551HqaMyk7PGu">💾 保存</button>

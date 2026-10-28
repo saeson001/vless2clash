@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.47"
+APP_VERSION = "v1.6.48"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -121,6 +121,16 @@ DEFAULT_GLOBAL_CONFIG = {
     # Format: JSON array of {"url":"http://IP:PORT","username":"...","password":"..."}
     # Leave empty to disable (shows 0/0).
     "vps_traffic_sources": [],
+    # Node address overrides: rewrite the server address of parsed nodes so a
+    # blocked origin IP can be reached through a CDN front (e.g. Cloudflare).
+    # Format: JSON array of
+    #   {"from_server":"185.115.207.27","from_port":8443,
+    #    "to_server":"3x.820804.xyz","to_port":8443,
+    #    "sni":"3x.820804.xyz","host":"3x.820804.xyz",
+    #    "skip_cert_verify":false}
+    # from_port / to_port / sni / host / skip_cert_verify are optional.
+    # The FIRST matching rule wins. Empty array = no rewriting.
+    "server_overrides": [],
 }
 
 
@@ -161,6 +171,12 @@ def save_global_config(cfg):
         merged["vps_traffic_sources"] = src
     else:
         merged["vps_traffic_sources"] = []
+    # server_overrides: JSON array of node address rewrite rules
+    ovr = merged.get("server_overrides")
+    if isinstance(ovr, list):
+        merged["server_overrides"] = [r for r in ovr if isinstance(r, dict)]
+    else:
+        merged["server_overrides"] = []
     os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
     with open(GLOBAL_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
@@ -1870,7 +1886,92 @@ def _normalize_xui_sub_url(url):
     return url
 
 
-def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
+def apply_server_overrides(proxy, overrides):
+    """Rewrite a parsed proxy's server address according to global rules.
+
+    Purpose: a VPS origin IP can be blocked/tampered on the way from China
+    while the very same inbound works fine through a CDN front (Cloudflare).
+    This lets the admin point the subscription at the CDN domain without
+    touching the 3x-ui panel or re-pasting links.
+
+    Rule format (all keys except from_server are optional):
+        {
+          "from_server": "185.115.207.27",   # required, exact match
+          "from_port":   8443,                # optional, exact match
+          "to_server":   "3x.820804.xyz",     # required
+          "to_port":     8443,                # optional, keeps old port
+          "sni":         "3x.820804.xyz",     # optional, sets servername
+          "host":        "3x.820804.xyz",     # optional, sets ws Host header
+          "skip_cert_verify": false           # optional, forces the flag
+        }
+
+    The first matching rule wins. Returns the (possibly modified) proxy.
+    """
+    if not overrides or not isinstance(overrides, list):
+        return proxy
+    if not isinstance(proxy, dict):
+        return proxy
+
+    cur_server = str(proxy.get("server") or "")
+    cur_port = proxy.get("port")
+
+    for rule in overrides:
+        if not isinstance(rule, dict):
+            continue
+        from_server = str(rule.get("from_server") or "").strip()
+        if not from_server or from_server != cur_server:
+            continue
+        from_port = rule.get("from_port")
+        if from_port not in (None, ""):
+            try:
+                if int(from_port) != int(cur_port):
+                    continue
+            except (TypeError, ValueError):
+                continue
+
+        to_server = str(rule.get("to_server") or "").strip()
+        if not to_server:
+            continue
+
+        proxy["server"] = to_server
+        to_port = rule.get("to_port")
+        if to_port not in (None, ""):
+            try:
+                proxy["port"] = int(to_port)
+            except (TypeError, ValueError):
+                pass
+
+        sni = str(rule.get("sni") or "").strip()
+        if sni:
+            proxy["servername"] = sni
+
+        host = str(rule.get("host") or "").strip()
+        if host:
+            ws_opts = proxy.get("ws-opts")
+            if not isinstance(ws_opts, dict):
+                ws_opts = {}
+                proxy["ws-opts"] = ws_opts
+            headers = ws_opts.get("headers")
+            if not isinstance(headers, dict):
+                headers = {}
+                ws_opts["headers"] = headers
+            headers["Host"] = host
+
+        if "skip_cert_verify" in rule:
+            if rule.get("skip_cert_verify"):
+                proxy["skip-cert-verify"] = True
+            else:
+                # Remove the key entirely: mihomo's default is to VERIFY the
+                # certificate, and an explicit "skip-cert-verify: false" line
+                # is redundant. Removing it keeps the emitted YAML identical to
+                # the hand-verified Cloudflare config (no skip-cert-verify).
+                proxy.pop("skip-cert-verify", None)
+
+        break  # first match wins
+    return proxy
+
+
+def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url="", overrides=None):
     """Parse raw proxy links and subscription URLs into a list of proxies.
 
     Shared by /api/convert, /api/admin/records/<id>/edit, /refresh,
@@ -1882,6 +1983,11 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
     per VPS panel, so a single v2c token can aggregate clients from several
     3x-ui servers. v2c auto-fetches whatever the user configured / modified in
     3x-ui, so manual re-pasting is no longer needed.
+
+    `overrides` is the global-config list of node address rewrite rules; see
+    apply_server_overrides() for the format. Every parsed node passes through
+    it before being added, so a blocked origin IP can be redirected to a CDN
+    domain centrally.
 
     `merge_groups` maps a display name to every duplicate variant produced by
     collision-renaming, e.g. {"香港-超拽": ["香港-超拽", "香港-超拽_1"]}. Only
@@ -1920,6 +2026,11 @@ def _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=""):
         return key or name
 
     def add_proxy(proxy):
+        # v1.6.48: apply the global node address overrides (CDN front etc.)
+        # BEFORE naming/merging so every downstream consumer sees the final
+        # server address.
+        if overrides:
+            proxy = apply_server_overrides(proxy, overrides)
         name = proxy["name"]
         base = _base_key(name)
         if base in seen_bases:
@@ -2222,7 +2333,7 @@ def convert():
         if key not in config or config.get(key) in (None, ""):
             config[key] = gcfg.get(key)
 
-    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url, overrides=gcfg.get("server_overrides"))
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -2781,7 +2892,8 @@ def admin_edit_record(record_id):
     filename = row["filename"]
 
     # Parse new links
-    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    gcfg = load_global_config()
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url, overrides=gcfg.get("server_overrides"))
 
     if not proxies:
         error_msg = "未找到有效的代理节点"
@@ -2892,7 +3004,8 @@ def admin_refresh_record(record_id):
         return jsonify({"error": "该记录没有原始链接数据，无法刷新"}), 400
 
     # Re-parse using stored links
-    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    gcfg = load_global_config()
+    proxies, errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url, overrides=gcfg.get("server_overrides"))
 
     if not proxies:
         error_msg = "重新解析失败，未找到有效节点"
@@ -2989,7 +3102,7 @@ def admin_refresh_all_records():
             if not raw_links and not sub_urls and not xui_sub_url:
                 skipped.append({"id": record_id, "error": "无原始链接数据"})
                 continue
-            proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+            proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url, overrides=gcfg.get("server_overrides"))
             if not proxies:
                 skipped.append({"id": record_id, "error": "重新解析失败，无有效节点"})
                 continue
@@ -3395,7 +3508,7 @@ def regenerate_record_yaml(record_id, gcfg=None):
         conn.close()
         return False, "无原始链接数据"
 
-    proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url)
+    proxies, _errors, merge_groups = _parse_links_and_subs(raw_links, sub_urls, xui_sub_url=xui_sub_url, overrides=gcfg.get("server_overrides"))
     if not proxies:
         conn.close()
         return False, "重新解析失败，无有效节点"
