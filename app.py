@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.48"
+APP_VERSION = "v1.6.49"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -131,6 +131,12 @@ DEFAULT_GLOBAL_CONFIG = {
     # from_port / to_port / sni / host / skip_cert_verify are optional.
     # The FIRST matching rule wins. Empty array = no rewriting.
     "server_overrides": [],
+    # Public base URL used when building the subscription link shown in the
+    # admin UI / copied to the clipboard. Set it to a CDN-fronted address
+    # (e.g. http://3x.820804.xyz:2095) so clients can pull the subscription
+    # even when the origin IP is blocked from their network.
+    # Empty = use the request host (default behaviour).
+    "public_base_url": "",
 }
 
 
@@ -177,6 +183,11 @@ def save_global_config(cfg):
         merged["server_overrides"] = [r for r in ovr if isinstance(r, dict)]
     else:
         merged["server_overrides"] = []
+    # public_base_url: strip trailing slash; must be http(s)://host[:port]
+    pub = str(merged.get("public_base_url") or "").strip().rstrip("/")
+    if pub and not pub.startswith(("http://", "https://")):
+        pub = ""
+    merged["public_base_url"] = pub
     os.makedirs(os.path.dirname(GLOBAL_CONFIG_FILE), exist_ok=True)
     with open(GLOBAL_CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(merged, f, ensure_ascii=False, indent=2)
@@ -2729,7 +2740,13 @@ def admin_record_detail(record_id):
     conn.close()
 
     # Build download URL for the detail view
-    download_url = f"{request.host_url.rstrip('/')}/d/{row['token']}"
+    # public_base_url (CDN-fronted address) takes priority over the request
+    # host, so the shown link stays usable when the origin IP is blocked.
+    gcfg = load_global_config()
+    pub_base = (gcfg.get("public_base_url") or "").rstrip("/")
+    if not pub_base:
+        pub_base = request.host_url.rstrip("/")
+    download_url = f"{pub_base}/d/{row['token']}"
 
     return jsonify({
         "id": row["id"],

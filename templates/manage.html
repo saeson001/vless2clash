@@ -189,6 +189,11 @@
                         <textarea id="gc-server-overrides" rows="3" placeholder='[{"from_server":"185.115.207.27","from_port":8443,"to_server":"3x.820804.xyz","to_port":8443,"sni":"3x.820804.xyz","host":"3x.820804.xyz","skip_cert_verify":false}]' style="font-family:monospace;font-size:12px;width:100%;resize:vertical;"></textarea>
                         <small style="color:#888;">JSON 数组，每条规则把匹配的节点地址改写成新地址。<code>from_port</code>/<code>to_port</code>/<code>sni</code>/<code>host</code>/<code>skip_cert_verify</code> 可选，首条命中即生效。留空则不改写。修改后需点「保存并应用到所有 Token」生效。</small>
                     </div>
+                    <div class="config-item" style="grid-column:1/-1;">
+                        <label>订阅公开地址（对外展示与复制的订阅链接前缀）</label>
+                        <input type="text" id="gc-public-base-url" placeholder="http://3x.820804.xyz:2095" style="width:100%;">
+                        <small style="color:#888;">留空则使用当前访问地址。填写 CDN 前置地址（如 <code>http://3x.820804.xyz:2095</code>）后，后台显示和「复制链接」给出的将是该地址，源站 IP 被封时客户端依然能拉取订阅。</small>
+                    </div>
                 </div>
                 <div class="modal-actions" style="margin-top:12px;" data-page-node-id="kFltcpyW9EQA477jeqgdaZ">
                     <button class="btn btn-primary" id="gc-save-btn" onclick="saveGlobalConfig(false)" data-page-node-id="AE7Fs7fUa551HqaMyk7PGu">💾 保存</button>

@@ -154,6 +154,8 @@ function loadGlobalConfig() {
             setGlobalConfigField('gc-vps-traffic-sources', Array.isArray(vpsSrc) ? JSON.stringify(vpsSrc, null, 2) : '');
             var srvOvr = cfg.server_overrides;
             setGlobalConfigField('gc-server-overrides', Array.isArray(srvOvr) ? JSON.stringify(srvOvr, null, 2) : '');
+            setGlobalConfigField('gc-public-base-url', cfg.public_base_url || '');
+            window.__publicBaseUrl = cfg.public_base_url || '';
         })
         .catch(function() {});
 }
@@ -187,6 +189,10 @@ function saveGlobalConfig(applyAll) {
             var el = document.getElementById('gc-server-overrides');
             if (!el) return [];
             try { return JSON.parse(el.value || '[]'); } catch(e) { return []; }
+        })(),
+        public_base_url: (function() {
+            var el = document.getElementById('gc-public-base-url');
+            return el ? el.value.trim() : '';
         })()
     };
     var saveBtn = document.getElementById('gc-save-btn');
@@ -646,7 +652,10 @@ function fallbackCopy(text, btn, originalHTML) {
 
 // Copy download link from records table (by token)
 function copyRecordLink(token, btn) {
-    var url = window.location.origin + '/d/' + token;
+    // Use the configured public base URL (e.g. a CDN-fronted address) so the
+    // copied subscription link stays reachable when the origin IP is blocked.
+    var base = (window.__publicBaseUrl || '').replace(/\/+$/, '');
+    var url = (base || window.location.origin) + '/d/' + token;
     var originalHTML = btn.innerHTML;
 
     if (window.isSecureContext && navigator.clipboard) {
