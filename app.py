@@ -70,7 +70,7 @@ app.config.update(
 )
 
 # Application version (sync with deploy.sh VERSION)
-APP_VERSION = "v1.6.45"
+APP_VERSION = "v1.6.46"
 
 # Directory for saving generated YAML files
 DOWNLOADS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
@@ -1420,11 +1420,29 @@ def generate_clash_yaml(proxies, config=None):
     lines.append(f"log-level: {log_level}")
     lines.append("")
 
-    # v1.6.45: 不放 DNS 段 — HTTP 代理模式下 mihomo 直接传域名到 VLESS 出站，
-    # 由服务端远程解析。放 DNS 模块会导致 mihomo 本地解析（国内 DoH 返回污染
-    # 结果），污染 IP 被当作拨号目标导致 youtube/google 超时。
-    # 如需 fake-ip(TUN 模式)，用户可在 Verge 中自行添加 DNS 配置。
-    group = config.get("group_name", "节点选择")
+    # v1.6.46: DNS 段恢复，但用正确姿势——fake-ip 模式下 mihomo 不真实解析国外
+    # 域名（返回 fake-ip，连接按域名进隧道由服务端远程解析），彻底免疫 DNS 污染。
+    # nameserver 仅用于真实解析场景（fake-ip-filter 内的域名），国内 DoH 足够。
+    # 之前"移除 DNS 段"的版本导致 mihomo 回退系统解析（污染），已回退此决定。
+    lines.append("dns:")
+    lines.append("  enable: true")
+    lines.append("  enhanced-mode: fake-ip")
+    lines.append("  fake-ip-range: 198.18.0.1/16")
+    lines.append("  use-hosts: true")
+    lines.append("  nameserver:")
+    lines.append("    - https://doh.pub/dns-query")
+    lines.append("    - https://dns.alidns.com/dns-query")
+    lines.append("  fake-ip-filter:")
+    lines.append("    - '*.lan'")
+    lines.append("    - '*.local'")
+    lines.append("    - localhost")
+    lines.append("    - '*.localhost'")
+    lines.append("    - '*.example'")
+    lines.append("    - '*.invalid'")
+    lines.append("    - 'time.*.com'")
+    lines.append("    - '*.music.163.com'")
+    lines.append("    - '*.stun.*.*'")
+    lines.append("")
 
     # Sniffer (v1.6.44): 嗅探内层 TLS SNI / HTTP Host 并覆写目标地址。
     # 国内 DNS 对国外域名返回污染解析(如 youtube -> Facebook IP), 若把解析出的
